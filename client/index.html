@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Podmate</title>
+    <script>
+      // On page load or when changing themes, best to add inline in `head` to avoid FOUC
+      if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    </script>
+    <!-- Dropbox Chooser SDK - App key will be injected from localStorage or server config -->
+    <script type="text/javascript">
+      // Inject Dropbox App Key from localStorage (user settings) or server config
+      (function() {
+        // Check localStorage first (user-configured settings)
+        const stored = localStorage.getItem('podmate_cloud_credentials');
+        let appKey = '';
+        
+        if (stored) {
+          try {
+            const credentials = JSON.parse(stored);
+            appKey = credentials.dropboxAppKey || '';
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+        
+        // If no stored key, check server config
+        if (!appKey) {
+          fetch('/api/config')
+            .then(res => res.json())
+            .then(config => {
+              appKey = config.dropboxAppKey || '';
+              loadDropboxScript(appKey);
+            })
+            .catch(() => {
+              loadDropboxScript('');
+            });
+        } else {
+          loadDropboxScript(appKey);
+        }
+        
+        function loadDropboxScript(key) {
+          const script = document.createElement('script');
+          script.type = 'text/javascript';
+          script.src = 'https://www.dropbox.com/static/api/2/dropins.js';
+          script.id = 'dropboxjs';
+          if (key) {
+            script.setAttribute('data-app-key', key);
+          }
+          script.onload = function() {
+            console.log('Dropbox Chooser SDK loaded', key ? 'with app key' : 'without app key');
+          };
+          script.onerror = function() {
+            console.error('Failed to load Dropbox Chooser SDK');
+          };
+          document.head.appendChild(script);
+        }
+      })();
+    </script>
+    <!-- Google Picker API -->
+    <script type="text/javascript" src="https://apis.google.com/js/api.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

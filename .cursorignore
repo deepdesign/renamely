@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+server/tmp/
+*.tsbuildinfo
+
+# Explicitly allow .env file (negate gitignore pattern)
+!.env
+
