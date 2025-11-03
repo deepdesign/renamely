@@ -5,15 +5,18 @@ A web application for bulk-creating Gelato print-on-demand products from templat
 ## Features
 
 - **Multi-source Image Upload**: Upload images from local files, Dropbox, or Google Drive
-- **Cloud Storage Integration**: OAuth2 authentication for Dropbox and Google Drive
+- **Cloud Storage Integration**: OAuth2 authentication for Dropbox and Google Drive with persistent connections
 - **Template Management**: Load one or more Gelato product templates and view variant details
 - **Image Mapping**: Map uploaded images to template placeholders with automatic filename-based matching
-- **Variant Selection**: Choose which product variants to create for each image
+- **Variant Selection**: Choose which product variants to create for each image (all variants selected by default)
 - **Metadata Configuration**: Set product titles, descriptions, tags, visibility, and sales channels
 - **Batch Processing**: Queue-based system for uploading multiple products with real-time status tracking
 - **Status Monitoring**: Track product creation status with automatic polling and URL regeneration
+- **State Persistence**: Application state persists across page refreshes, allowing you to resume work
+- **Progress Tracking**: Queue progress is saved and restored on page refresh
 - **CSV Export**: Export upload results with product IDs and status information
 - **Dark Mode**: Built-in dark mode support
+- **Success Panel**: View your products in Gelato dashboard directly from the success message
 
 ## Quick Start
 
@@ -89,9 +92,18 @@ A web application for bulk-creating Gelato print-on-demand products from templat
    Copy the generated HTTPS URL and update `PUBLIC_BASE_URL` in your `.env` file.
 
 4. **Start development servers**:
+   
+   **Option A: Using batch script** (Windows):
+   ```bash
+   # Double-click or run:
+   start-server.bat
+   ```
+   
+   **Option B: Using npm**:
    ```bash
    npm run dev
    ```
+   
    - Client runs on `http://localhost:5173` (Vite dev server)
    - Server runs on `http://localhost:5175` (Express API)
 
@@ -123,6 +135,16 @@ The application uses a step-based workflow:
    - Click "Connect Dropbox" on the Dropbox tab
    - Authorize the application
    - Browse and select files from your Dropbox
+
+3. **Connection Persistence**:
+   - Your Dropbox connection is automatically saved and persists across browser sessions
+   - Tokens are automatically refreshed when expired or close to expiry
+   - You only need to reconnect if the refresh token is revoked in Dropbox settings
+
+4. **File Selection**:
+   - Click individual files to select/deselect
+   - Hold Shift and click to select a range of files
+   - Use "Select All" to select all visible files
 
 ### Google Drive
 
@@ -175,6 +197,9 @@ Files are served locally via signed URLs with HMAC token authentication:
 ```bash
 # Development (runs both client and server)
 npm run dev
+
+# Or on Windows, use the batch script:
+start-server.bat
 
 # Build for production
 npm run build
@@ -243,6 +268,9 @@ NODE_ENV=production node dist/index.js
 - **File Serving**: Files must be accessible via HTTPS for Gelato to fetch them. A tunnel service is required.
 - **Large Files**: High-resolution images (50-100MB+) may take 30-60+ minutes to process in Gelato.
 - **Token Expiry**: Cloud storage OAuth tokens are automatically refreshed when possible.
+- **State Persistence**: Application state (template, images, queue progress) is saved to browser sessionStorage and persists across page refreshes.
+- **Queue Management**: Queue processing must be explicitly started via the "Start Queue" button - products are not created automatically.
+- **Duplicate Prevention**: Built-in safeguards prevent duplicate product creation even if the page is refreshed during processing.
 
 ## Troubleshooting
 
@@ -271,7 +299,8 @@ NODE_ENV=production node dist/index.js
 
 - **Dropbox**: Ensure app is set to "Full Dropbox" (not "App Folder")
 - **Google Drive**: Verify OAuth consent screen is configured and test users are added if in testing mode
-- **Token Expiry**: Reconnect if tokens have expired
+- **Token Expiry**: Tokens are automatically refreshed, but reconnect if refresh fails
+- **Connection Lost**: If your Dropbox connection is lost, simply reconnect - the app will remember your connection for future sessions
 
 ## Documentation
 
