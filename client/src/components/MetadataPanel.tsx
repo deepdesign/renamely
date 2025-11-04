@@ -45,7 +45,7 @@ export default function MetadataPanel({
     <div className="space-y-4">
         <div>
           <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Title Prefix (Optional)
+            Title prefix (optional)
           </label>
           <input
             id="title"

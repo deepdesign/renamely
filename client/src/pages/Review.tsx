@@ -217,7 +217,7 @@ export default function Review() {
   return (
     <div className="space-y-6">
       <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Review & Upload to Gelato</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Review & upload to Gelato</h2>
         
         <div className="space-y-4">
           <div>
@@ -227,13 +227,13 @@ export default function Review() {
             <strong>Images:</strong> {images.length}
           </div>
           <div>
-            <strong>Title Prefix:</strong> {metadata.title ? `"${metadata.title}" (will be combined with image filename)` : 'None (using image filename only)'}
+            <strong>Title prefix:</strong> {metadata.title ? `"${metadata.title}" (will be combined with image filename)` : 'None (using image filename only)'}
           </div>
           <div>
             <strong>Description:</strong> {metadata.description || 'Not set'}
           </div>
           <div>
-            <strong>Products to Create:</strong> {images.length} (one per image)
+            <strong>Products to create:</strong> {images.length} (one per image)
             <div className="text-xs text-gray-500 mt-1">
               Each product will use: {metadata.title ? `"${metadata.title} - [Image Name]"` : '"[Image Name]"'} as title
             </div>

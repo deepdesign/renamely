@@ -1,45 +1,47 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { useAppStore } from '../features/store/slices';
 
 export default function DarkModeToggle() {
-  const [isDark, setIsDark] = useState(false);
+  const { isDarkMode, toggleDarkMode } = useAppStore();
 
   useEffect(() => {
-    // Check initial theme
-    if (
-      localStorage.getItem('color-theme') === 'dark' ||
-      (!('color-theme' in localStorage) &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches)
-    ) {
-      setIsDark(true);
-    } else {
-      setIsDark(false);
+    // Initialize theme on mount
+    const savedTheme = localStorage.getItem('color-theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    const shouldBeDark = savedTheme === 'dark' || (!savedTheme && prefersDark);
+    
+    if (shouldBeDark && !isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('color-theme', 'dark');
+    } else if (!shouldBeDark && isDarkMode) {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('color-theme', 'light');
     }
   }, []);
 
-  const toggleTheme = () => {
-    if (
-      !document.documentElement.classList.contains('dark') ||
-      (!('color-theme' in localStorage) &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches)
-    ) {
+  const handleToggle = () => {
+    const newMode = !isDarkMode;
+    
+    if (newMode) {
       document.documentElement.classList.add('dark');
       localStorage.setItem('color-theme', 'dark');
-      setIsDark(true);
     } else {
       document.documentElement.classList.remove('dark');
       localStorage.setItem('color-theme', 'light');
-      setIsDark(false);
     }
+    
+    toggleDarkMode();
   };
 
   return (
     <button
       type="button"
-      onClick={toggleTheme}
+      onClick={handleToggle}
       className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 rounded-lg text-sm p-2.5"
-      aria-label="Toggle dark mode"
+      aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
     >
-      {isDark ? (
+      {isDarkMode ? (
         <svg
           className="w-5 h-5"
           fill="currentColor"

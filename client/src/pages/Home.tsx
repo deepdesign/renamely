@@ -1,1390 +1,1309 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import TemplatePicker from '../components/TemplatePicker';
-import FileBrowser from '../components/FileBrowser';
-import ImageVariantSelection from '../components/ImageVariantSelection';
-import MetadataPanel from '../components/MetadataPanel';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useAppStore } from '../features/store/slices';
+import { FilePicker, type FilePickerRef } from '../components/FilePicker';
+import { ImageGrid } from '../components/ImageGrid';
 import Stepper from '../components/Stepper';
-import RunSheet from '../components/RunSheet';
-import UnifiedQueue from '../components/UnifiedQueue';
-import type { TemplateInfo, UploadedFile, CreateFromTemplateBody, ProductCreationResult, PlaceholderAssignment, VariantAssignment } from '../lib/types';
-import { uploadLocal, createFromTemplate } from '../lib/api';
-import { toHeadlineCase } from '../lib/utils';
-import { saveCloudCredentials, getCloudCredentials } from '../lib/storage';
+import { Button } from '../components/ui/Button';
+import { ChevronRight, ChevronLeft, Loader2, Check, Plus, RotateCw, Pencil, CheckCircle, AlertCircle, Settings, Info } from 'lucide-react';
+import { initializeDB, db } from '../features/store/db';
+import { loadDefaultWordBanks } from '../features/generation/wordBanks';
+import { loadDefaultThemes, loadDefaultPresets } from '../features/generation/themes';
+import { normalizeName, generateName, registerName, releaseNames } from '../features/generation/engine';
+import { createDirectory, moveFile, renameFile, selectDirectory } from '../features/files/fs-api';
+import type { Preset, WordBank, Theme, AuditEntry, AuditBatch } from '../features/store/db';
 
 const STEPS = [
-  { id: 1, name: 'Template', description: 'Select template' },
-  { id: 2, name: 'Images', description: 'Upload artwork' },
-  { id: 3, name: 'Variants', description: 'Select variants' },
-  { id: 4, name: 'Metadata', description: 'Set details' },
-  { id: 5, name: 'Review', description: 'Review & upload' },
-  { id: 6, name: 'Queue', description: 'Upload queue' },
+  { id: 1, name: 'Select images', description: 'Choose images to rename' },
+  { id: 2, name: 'Select theme', description: 'Choose a theme for word banks' },
+  { id: 3, name: 'Select template', description: 'Choose or create naming template' },
+  { id: 4, name: 'Review & edit', description: 'Preview and adjust names' },
+  { id: 5, name: 'Rename', description: 'Execute batch rename' },
 ];
 
-export default function Home() {
-  const [currentStep, setCurrentStep] = useState(1);
-  const [template, setTemplate] = useState<TemplateInfo | null>(null);
-  const [images, setImages] = useState<UploadedFile[]>([]);
-  const [selectedVariants, setSelectedVariants] = useState<Map<string, string[]>>(new Map());
-  const [metadata, setMetadata] = useState<Partial<CreateFromTemplateBody>>({});
-  const [uploading, setUploading] = useState(false);
-  const [selectedCloudFilesCount, setSelectedCloudFilesCount] = useState(0);
-  const [addCloudFilesHandler, setAddCloudFilesHandler] = useState<(() => Promise<void>) | null>(null);
-  const [results, setResults] = useState<ProductCreationResult[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{
-    current: number;
-    total: number;
-    currentImageName: string | null;
-  } | null>(null);
+// Map caseStyle for display (handles legacy 'kebab' and 'snake' values)
+function getCaseStyleDisplay(caseStyle: string): string {
+  if (caseStyle === 'kebab' || caseStyle === 'snake') {
+    return 'lowercase';
+  }
+  const styleMap: Record<string, string> = {
+    'Title': 'Title Case',
+    'Sentence': 'Sentence case',
+    'lower': 'lowercase',
+    'UPPER': 'UPPERCASE',
+  };
+  return styleMap[caseStyle] || caseStyle;
+}
+
+// Get delimiter display (show space as 'space' for clarity)
+function getDelimiterDisplay(delimiter: string): string {
+  if (delimiter === ' ') {
+    return 'space';
+  }
+  return delimiter;
+}
+
+// Extract pattern from template string (e.g., "{adjective}-{adjective}-{noun}" -> "Adjective-Adjective-Noun")
+function getTemplatePattern(template: string): string {
+  const partMap: Record<string, string> = {
+    'adjective': 'Adjective',
+    'noun': 'Noun',
+    'prefix': 'Prefix',
+    'suffix': 'Suffix',
+    'date': 'Date',
+    'counter': 'Counter',
+  };
   
-  // Track if URL params have been processed to prevent resetting during active workflow
-  const urlParamsProcessedRef = useRef(false);
-  const skipRestoreRef = useRef(false); // Track if we should skip restoring state (e.g., after Start New)
+  // Extract all {placeholder} patterns from the template
+  const placeholderRegex = /\{([^}]+)\}/g;
+  const matches = template.matchAll(placeholderRegex);
+  const patternParts: string[] = [];
+  
+  for (const match of matches) {
+    const key = match[1].toLowerCase();
+    if (key in partMap) {
+      patternParts.push(partMap[key]);
+    } else {
+      // Handle unknown placeholders - capitalize first letter
+      patternParts.push(key.charAt(0).toUpperCase() + key.slice(1));
+    }
+  }
+  
+  // If we couldn't parse it, return the template as-is
+  if (patternParts.length === 0) {
+    return template;
+  }
+  
+  return patternParts.join('-');
+}
 
-  // Track if we've already restored state to prevent multiple restorations
-  const hasRestoredRef = useRef(false);
+// Generate example name for a theme (adjective-adjective-noun format)
+function generateThemeExampleName(theme: Theme, wordBanks: WordBank[]): string {
+  try {
+    // Filter word banks by theme
+    const themeWordBanks = wordBanks.filter(b => b.themeId === theme.id);
+    
+    const adjectives = themeWordBanks.filter(b => b.type === 'adjective');
+    const nouns = themeWordBanks.filter(b => b.type === 'noun');
 
-  // Restore state from sessionStorage on mount
-  useEffect(() => {
-    // Only restore once on initial mount, and skip if explicitly requested
-    if (skipRestoreRef.current || hasRestoredRef.current) {
-      skipRestoreRef.current = false;
-      return;
+    if (adjectives.length === 0 || nouns.length === 0) {
+      return 'example-name';
+    }
+
+    // Get all words from theme's word banks
+    const adjectiveWords: string[] = [];
+    const nounWords: string[] = [];
+
+    for (const bank of adjectives) {
+      adjectiveWords.push(...bank.words);
+    }
+
+    for (const bank of nouns) {
+      nounWords.push(...bank.words);
+    }
+
+    if (adjectiveWords.length === 0 || nounWords.length === 0) {
+      return 'example-name';
+    }
+
+    // Select words deterministically (using theme id as seed)
+    const seed = theme.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    let rngState = seed;
+    const rng = () => {
+      rngState = (rngState * 9301 + 49297) % 233280;
+      return rngState / 233280;
+    };
+
+    // Select 2 adjectives and 1 noun
+    const selectedAdjectives: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      selectedAdjectives.push(adjectiveWords[Math.floor(rng() * adjectiveWords.length)]);
+    }
+    const selectedNoun = nounWords[Math.floor(rng() * nounWords.length)];
+
+    // Build name: adjective-adjective-noun
+    const parts = [...selectedAdjectives, selectedNoun];
+    return parts.join('-').toLowerCase();
+  } catch (err) {
+    return 'example-name';
+  }
+}
+
+// Generate example name for a preset
+function generateExampleName(preset: Preset, wordBanks: WordBank[], currentTheme: Theme | null): string {
+  try {
+    // Filter word banks by selected theme if one is selected
+    let filteredWordBanks = wordBanks;
+    if (currentTheme) {
+      filteredWordBanks = wordBanks.filter(b => b.themeId === currentTheme.id);
     }
     
-    hasRestoredRef.current = true;
-    
-    // Use a function to check current state at execution time, not closure time
-    setCurrentStep(current => {
-      try {
-        // First check if there's queue progress - if so, go to step 6
-        const savedQueue = sessionStorage.getItem('podmate_queue');
-        if (savedQueue) {
-          try {
-            const parsedQueue = JSON.parse(savedQueue);
-            if (Array.isArray(parsedQueue) && parsedQueue.length > 0) {
-              // If queue has items (especially items that are not all complete), we should be on step 6
-              const hasInProgressItems = parsedQueue.some((item: any) => 
-                item.status === 'submitted' || 
-                item.status === 'uploading' || 
-                (item.productId && item.status !== 'complete' && item.status !== 'error')
-              );
-              // If there are any in-progress items OR if all are complete (showing success state), go to step 6
-              if (hasInProgressItems || parsedQueue.length > 0) {
-                console.log('Restoring to step 6 due to queue progress');
-                return 6;
-              }
-            }
-          } catch (err) {
-            console.error('Failed to parse saved queue:', err);
-          }
-        }
-        
-        // Otherwise, restore the saved step if we're on step 1
-        const savedStep = sessionStorage.getItem('podmate_currentStep');
-        if (savedStep && current === 1) {
-          // Only restore step if we're still on step 1 (initial state)
-          const stepNum = parseInt(savedStep, 10);
-          if (stepNum >= 1 && stepNum <= STEPS.length) {
-            return stepNum;
-          }
-        }
-      } catch (err) {
-        console.error('Failed to restore currentStep:', err);
-      }
-      return current;
-    });
-    
-    setTemplate(current => {
-      try {
-        const savedTemplate = sessionStorage.getItem('podmate_template');
-        if (savedTemplate && !current) {
-          return JSON.parse(savedTemplate);
-        }
-      } catch (err) {
-        console.error('Failed to restore template:', err);
-      }
-      return current;
-    });
-    
-    setImages(current => {
-      try {
-        const savedImages = sessionStorage.getItem('podmate_images');
-        if (savedImages && current.length === 0) {
-          const parsedImages = JSON.parse(savedImages);
-          // Don't restore File objects as they can't be serialized
-          return parsedImages.map((img: any) => ({
-            ...img,
-            file: undefined, // File objects can't be restored
-          }));
-        }
-      } catch (err) {
-        console.error('Failed to restore images:', err);
-      }
-      return current;
-    });
-    
-    setSelectedVariants(current => {
-      try {
-        const savedVariants = sessionStorage.getItem('podmate_selectedVariants');
-        if (savedVariants && current.size === 0) {
-          const parsedVariants = JSON.parse(savedVariants);
-          return new Map(parsedVariants);
-        }
-      } catch (err) {
-        console.error('Failed to restore selectedVariants:', err);
-      }
-      return current;
-    });
-    
-    setMetadata(current => {
-      try {
-        const savedMetadata = sessionStorage.getItem('podmate_metadata');
-        if (savedMetadata && Object.keys(current).length === 0) {
-          return JSON.parse(savedMetadata);
-        }
-      } catch (err) {
-        console.error('Failed to restore metadata:', err);
-      }
-      return current;
-    });
-  }, []); // Only run on mount
+    const adjectives = filteredWordBanks.filter((b) => b.type === 'adjective' && (!preset.nsfwFilter || !b.nsfw));
+    const nouns = filteredWordBanks.filter((b) => b.type === 'noun' && (!preset.nsfwFilter || !b.nsfw));
 
-  // Auto-select all variants for all images when template is available
-  useEffect(() => {
-    if (template && template.variants.length > 0 && images.length > 0) {
-      setSelectedVariants(prev => {
-        const newMap = new Map(prev);
-        let hasChanges = false;
-        
-        // Ensure all images have all variants selected
-        images.forEach(img => {
-          const current = newMap.get(img.fileId) || [];
-          const allVariantIds = template.variants.map(v => v.id);
-          
-          // Check if this image is missing any variants
-          const missingVariants = allVariantIds.filter(id => !current.includes(id));
-          
-          if (missingVariants.length > 0) {
-            // Add missing variants
-            newMap.set(img.fileId, [...current, ...missingVariants]);
-            hasChanges = true;
-          } else if (current.length === 0) {
-            // If image has no variants selected, select all
-            newMap.set(img.fileId, allVariantIds);
-            hasChanges = true;
-          }
-        });
-        
-        return hasChanges ? newMap : prev;
-      });
+    if (adjectives.length === 0 || nouns.length === 0) {
+      return 'example-name';
     }
-  }, [template, images]); // Run when template or images change
 
-  // Persist state to sessionStorage whenever it changes
-  useEffect(() => {
-    try {
-      sessionStorage.setItem('podmate_currentStep', currentStep.toString());
+    // Get all words from selected banks
+    const adjectiveWords: string[] = [];
+    const nounWords: string[] = [];
+
+    for (const bank of adjectives) {
+      if (preset.wordBankIds.adjectives.includes(bank.id)) {
+        adjectiveWords.push(...bank.words);
+      }
+    }
+
+    for (const bank of nouns) {
+      if (preset.wordBankIds.nouns.includes(bank.id)) {
+        nounWords.push(...bank.words);
+      }
+    }
+
+    if (adjectiveWords.length === 0 || nounWords.length === 0) {
+      return 'example-name';
+    }
+
+    // Select words deterministically (using preset id as seed)
+    const seed = preset.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    let rngState = seed;
+    const rng = () => {
+      rngState = (rngState * 9301 + 49297) % 233280;
+      return rngState / 233280;
+    };
+
+    const selectedAdjectives: string[] = [];
+    for (let i = 0; i < preset.numAdjectives; i++) {
+      selectedAdjectives.push(adjectiveWords[Math.floor(rng() * adjectiveWords.length)]);
+    }
+    const selectedNoun = nounWords[Math.floor(rng() * nounWords.length)];
+
+    // Build base name
+    let parts: string[] = [];
+    if (preset.prefix) {
+      parts.push(preset.prefix);
+    }
+    parts.push(...selectedAdjectives, selectedNoun);
+    if (preset.suffix) {
+      parts.push(preset.suffix);
+    }
+
+    let baseName = parts.join(preset.delimiter);
+
+    // Add date stamp if enabled
+    if (preset.includeDateStamp) {
+      const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      baseName = `${baseName}${preset.delimiter}${dateStr}`;
+    }
+
+    // Add counter if enabled
+    if (preset.useCounter) {
+      baseName = `${baseName}${preset.delimiter}${preset.counterStart}`;
+    }
+
+    // Apply case style
+    return normalizeName(baseName, preset.caseStyle);
     } catch (err) {
-      console.error('Failed to save currentStep:', err);
+    return 'example-name';
+  }
+}
+
+export default function Home() {
+  const {
+    currentTheme,
+    setCurrentTheme,
+    themes,
+    setThemes,
+    currentPreset,
+    setCurrentPreset,
+    presets,
+    setPresets,
+    images,
+    setImages,
+    loadSettings,
+    wordBanks,
+    setWordBanks,
+    sessionUsedNames,
+    addUsedName,
+    settings,
+    selectedDirectory,
+    setSelectedDirectory,
+    isProcessing,
+    setProcessing,
+    progress,
+    totalFiles,
+    setProgress,
+    addError,
+    clearErrors,
+    addAuditBatch,
+    setLastBatchId,
+    errors,
+  } = useAppStore();
+
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Initialize step from URL or default to 1
+  const urlStep = searchParams.get('step');
+  const initialStep = urlStep ? parseInt(urlStep, 10) : 1;
+  const [currentStep, setCurrentStep] = useState(initialStep);
+  
+  // Update URL when step changes
+  useEffect(() => {
+    if (currentStep !== initialStep || urlStep !== String(currentStep)) {
+      setSearchParams({ step: String(currentStep) }, { replace: true });
     }
   }, [currentStep]);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const filePickerRef = useRef<FilePickerRef>(null);
+  const [selectedImageCount, setSelectedImageCount] = useState(0);
+  const [isProcessingImages, setIsProcessingImages] = useState(false);
+  const [renameResult, setRenameResult] = useState<{ successCount: number; errorCount: number; batchId: string | null } | null>(null);
+  const isGeneratingNamesRef = useRef(false);
 
+  // Initialize database and load defaults
   useEffect(() => {
-    try {
-      if (template) {
-        sessionStorage.setItem('podmate_template', JSON.stringify(template));
-      } else {
-        sessionStorage.removeItem('podmate_template');
-      }
-    } catch (err) {
-      console.error('Failed to save template:', err);
-    }
-  }, [template]);
-
-  useEffect(() => {
-    try {
-      if (images.length > 0) {
-        // Don't save File objects as they can't be serialized
-        // Store only essential fields to minimize storage
-        const imagesToSave = images.map(img => ({
-          fileId: img.fileId,
-          publicUrl: img.publicUrl,
-          thumbnailUrl: img.thumbnailUrl,
-          originalName: img.originalName,
-          sourceType: img.sourceType,
-          // Skip file object
-        }));
+    async function init() {
+      try {
+        await initializeDB();
+        await loadSettings();
+        await loadDefaultThemes();
+        await loadDefaultWordBanks();
+        await loadDefaultPresets();
         
-        const imagesData = JSON.stringify(imagesToSave);
+        // Load themes
+        const allThemes = await db.themes.toArray();
+        setThemes(allThemes);
         
-        // Check if data is too large
-        if (imagesData.length > 4 * 1024 * 1024) { // 4MB warning threshold
-          console.warn('Images data is large, may exceed sessionStorage limits:', imagesData.length, 'bytes');
+        // Load word banks
+        const allWordBanks = await db.wordBanks.toArray();
+        setWordBanks(allWordBanks);
+        
+        // Load presets (default presets should have been created by loadDefaultPresets)
+        const allPresets = await db.presets.toArray();
+        setPresets(allPresets);
+        
+        // Set default theme if none selected (prefer 'universal' theme)
+        if (!currentTheme && allThemes.length > 0) {
+          const universalTheme = allThemes.find(t => t.id === 'universal') || allThemes[0];
+          setCurrentTheme(universalTheme);
         }
         
-        sessionStorage.setItem('podmate_images', imagesData);
-      } else {
-        sessionStorage.removeItem('podmate_images');
-      }
-    } catch (err) {
-      // Handle quota exceeded error
-      if (err instanceof DOMException && err.name === 'QuotaExceededError') {
-        console.error('SessionStorage quota exceeded. Images not saved. Consider using fewer images or cloud storage.');
-        // Try to save minimal version (just fileIds)
-        try {
-          const minimalImages = images.map(img => ({
-            fileId: img.fileId,
-            originalName: img.originalName,
-            sourceType: img.sourceType,
-          }));
-          sessionStorage.setItem('podmate_images', JSON.stringify(minimalImages));
-          console.warn('Saved minimal image data (without URLs). URLs will need to be refreshed.');
-        } catch (minimalErr) {
-          console.error('Failed to save even minimal image data:', minimalErr);
+        // Set default preset if no current preset (templates are theme-agnostic)
+        // Prefer 'default-adjective-noun' as the default, otherwise use first preset
+        if (!currentPreset && allPresets.length > 0) {
+          const defaultPreset = allPresets.find(p => p.id === 'default-adjective-noun') || allPresets[0];
+          setCurrentPreset(defaultPreset);
         }
-      } else {
-        console.error('Failed to save images:', err);
-      }
-    }
-  }, [images]);
-
-  useEffect(() => {
-    try {
-      if (selectedVariants.size > 0) {
-        sessionStorage.setItem('podmate_selectedVariants', JSON.stringify(Array.from(selectedVariants.entries())));
-      } else {
-        sessionStorage.removeItem('podmate_selectedVariants');
-      }
-    } catch (err) {
-      console.error('Failed to save selectedVariants:', err);
-    }
-  }, [selectedVariants]);
-
-  useEffect(() => {
-    try {
-      if (Object.keys(metadata).length > 0) {
-        sessionStorage.setItem('podmate_metadata', JSON.stringify(metadata));
-      } else {
-        sessionStorage.removeItem('podmate_metadata');
-      }
-    } catch (err) {
-      console.error('Failed to save metadata:', err);
-    }
-  }, [metadata]);
-
-  // Handle OAuth callbacks from Dropbox and Google Drive, and URL parameters for navigation
-  useEffect(() => {
-    // Only process URL params once on initial mount
-    if (urlParamsProcessedRef.current) {
-      return;
-    }
-    urlParamsProcessedRef.current = true;
-    
-    const params = new URLSearchParams(window.location.search);
-    const credentials = getCloudCredentials();
-    let updatedCredentials = { ...credentials };
-    let urlCleaned = false;
-    
-    // Check for step parameter (for navigation from Settings)
-    // Only use URL step if we're starting fresh (no template/images loaded yet)
-    // This prevents URL params from resetting an active workflow
-    const stepParam = params.get('step');
-    if (stepParam) {
-      const stepNum = parseInt(stepParam, 10);
-      if (stepNum >= 1 && stepNum <= STEPS.length) {
-        // Only set step from URL if we don't have template/images (fresh start)
-        // This prevents resetting when user is already in a workflow
-        if (!template && images.length === 0) {
-          setCurrentStep(stepNum);
-        }
-        urlCleaned = true;
-      }
-    }
-    
-    // Check for Dropbox OAuth success
-    if (params.get('dropbox_auth_success') === 'true') {
-      const accessToken = params.get('access_token');
-      const refreshToken = params.get('refresh_token');
-      const expiresIn = params.get('expires_in');
-      
-      if (accessToken) {
-        const expiryTime = expiresIn 
-          ? Date.now() + (parseInt(expiresIn) * 1000)
-          : Date.now() + (4 * 60 * 60 * 1000); // Default 4 hours
         
-        updatedCredentials = {
-          ...updatedCredentials,
-          dropboxAccessToken: accessToken,
-          dropboxRefreshToken: refreshToken || undefined,
-          dropboxTokenExpiry: expiryTime,
-        };
-        // Navigate to Step 2 (Upload artwork) after successful Dropbox connection
-        // Only if we're on step 1 (don't reset if user is further along)
-        if (currentStep === 1) {
-          setCurrentStep(2);
-        }
-        urlCleaned = true;
+        setIsInitialized(true);
+        } catch (err) {
+        console.error('Initialization error:', err);
       }
     }
     
-    // Check for Google Drive OAuth success
-    if (params.get('googledrive_auth_success') === 'true') {
-      const accessToken = params.get('access_token');
-      const refreshToken = params.get('refresh_token');
-      const expiresIn = params.get('expires_in');
-      
-      if (accessToken) {
-        const expiryTime = expiresIn 
-          ? Date.now() + (parseInt(expiresIn) * 1000)
-          : Date.now() + (1 * 60 * 60 * 1000); // Default 1 hour for Google
-        
-        updatedCredentials = {
-          ...updatedCredentials,
-          googleDriveAccessToken: accessToken,
-          googleDriveRefreshToken: refreshToken || undefined,
-          googleDriveTokenExpiry: expiryTime,
-        };
-        // Navigate to Step 2 (Upload artwork) after successful Google Drive connection
-        // Only if we're on step 1 (don't reset if user is further along)
-        if (currentStep === 1) {
-          setCurrentStep(2);
-        }
-        urlCleaned = true;
-      }
-    }
-    
-    // Save credentials if any OAuth succeeded
-    if (urlCleaned) {
-      saveCloudCredentials(updatedCredentials);
-    }
-    
-    // Check for OAuth errors
-    const dropboxError = params.get('dropbox_auth_error');
-    const googleError = params.get('googledrive_auth_error');
-    
-    if (dropboxError) {
-      console.error('Dropbox OAuth error:', dropboxError);
-      urlCleaned = true;
-    }
-    if (googleError) {
-      console.error('Google Drive OAuth error:', googleError);
-      urlCleaned = true;
-    }
-    
-    // Clean URL if any OAuth callback or step navigation was processed
-    if (urlCleaned) {
-      // Remove step/tab params but keep other params if they exist
-      const newParams = new URLSearchParams(window.location.search);
-      newParams.delete('step');
-      newParams.delete('tab');
-      const newSearch = newParams.toString();
-      const newUrl = newSearch 
-        ? `${window.location.pathname}?${newSearch}`
-        : window.location.pathname;
-      window.history.replaceState({}, '', newUrl);
-    }
+    init();
   }, []);
 
-  const handleTemplatesLoaded = (loadedTemplates: TemplateInfo[], autoAdvance: boolean = true) => {
-    // Simplified: Only use the first template
-    if (loadedTemplates.length > 0) {
-      setTemplate(loadedTemplates[0]);
-      // Initialize all variants as selected for all images
-      const newMap = new Map<string, string[]>();
-      images.forEach(img => {
-        newMap.set(img.fileId, loadedTemplates[0].variants.map(v => v.id));
-      });
-      setSelectedVariants(newMap);
-      // Auto-advance only if explicitly requested AND we're on step 1 (don't reset if already further along)
-      if (autoAdvance && currentStep === 1) {
-        setCurrentStep(2);
+  // Reload presets when entering step 3 or returning from settings
+  useEffect(() => {
+    async function reloadPresets() {
+      if (currentStep === 3) {
+        const allPresets = await db.presets.toArray();
+        setPresets(allPresets);
       }
     }
-  };
+    reloadPresets();
+  }, [currentStep, setPresets]);
 
-  const handleFilesAdded = async (files: File[]) => {
-    setUploading(true);
-    try {
-      const uploaded: UploadedFile[] = [];
-      const duplicates: string[] = [];
+  // Also reload when returning from settings (check for returnTo param)
+  useEffect(() => {
+    async function reloadFromSettings() {
+      const returnTo = searchParams.get('returnTo');
+      const step = searchParams.get('step');
+      if (returnTo === 'home' && step === '3') {
+        const allPresets = await db.presets.toArray();
+        setPresets(allPresets);
+        // Clear the returnTo param to avoid reloading on every render
+        setSearchParams({ step: '3' }, { replace: true });
+      }
+    }
+    reloadFromSettings();
+  }, [searchParams, setPresets, setSearchParams]);
+
+  // Generate names when theme and preset are selected and we have images
+  useEffect(() => {
+    async function generateImageNames() {
+      // Prevent concurrent runs
+      if (isGeneratingNamesRef.current) {
+        return;
+      }
       
-      for (const file of files) {
-        // Check if this file already exists (by name and source type)
-        const isDuplicate = images.some(
-          img => img.originalName === file.name && img.sourceType === 'local'
-        );
+      // Get current state values
+      const currentImages = images;
+      const currentThemeValue = currentTheme;
+      const currentPresetValue = currentPreset;
+      
+      if (!currentThemeValue || !currentPresetValue || currentImages.length === 0) {
+        return;
+      }
+
+      // Check if any images need names
+      const imagesNeedingNames = currentImages.filter(img => !img.suggestedName || !img.currentName);
+      if (imagesNeedingNames.length === 0) {
+        return; // All images already have names
+      }
+
+      console.log(`Generating names for ${imagesNeedingNames.length} images...`);
+      isGeneratingNamesRef.current = true;
+
+      try {
+        // Load word banks filtered by selected theme
+        let allWordBanks = wordBanks.length > 0 
+          ? wordBanks 
+          : await db.wordBanks.toArray();
+
+        // Filter by selected theme (exclude word banks without themeId)
+        if (currentThemeValue) {
+          const beforeFilter = allWordBanks.length;
+          allWordBanks = allWordBanks.filter(b => b.themeId && b.themeId === currentThemeValue.id);
+          console.log(`Filtered word banks for theme "${currentThemeValue.id}": ${beforeFilter} -> ${allWordBanks.length}`);
+          console.log(`Word bank IDs: ${allWordBanks.map(b => `${b.id} (${b.themeId})`).join(', ')}`);
+          
+          // Verify all word banks belong to the selected theme
+          const wrongThemeBanks = allWordBanks.filter(b => b.themeId !== currentThemeValue.id);
+          if (wrongThemeBanks.length > 0) {
+            console.error(`Found ${wrongThemeBanks.length} word banks with wrong theme:`, wrongThemeBanks.map(b => `${b.id} (theme: ${b.themeId})`));
+          }
+        } else {
+          // Even if no theme selected, exclude word banks without themeId
+          allWordBanks = allWordBanks.filter(b => b.themeId);
+        }
+
+        if (allWordBanks.length === 0) {
+          console.warn('No word banks available for the selected theme');
+          return;
+        }
+    
+        const maxLength = settings?.maxFilenameLength || 255;
+        // Generate names sequentially to ensure uniqueness and avoid adjective/noun repetition
+        const updatedImages: ImageFile[] = [];
+        const currentUsedNames = new Set(sessionUsedNames);
+        const currentUsedAdjectives = new Set<string>(); // Track adjectives used in this batch
+        const currentUsedNouns = new Set<string>(); // Track nouns used in this batch
         
-        if (isDuplicate) {
-          duplicates.push(file.name);
+        // Re-check images haven't been cleared while we were processing
+        const imagesToProcess = images;
+        if (imagesToProcess.length === 0) {
+          console.warn('Images were cleared during name generation');
+          return;
+        }
+        
+        for (const image of imagesToProcess) {
+          // Skip if image already has a name
+          if (image.suggestedName && image.currentName) {
+            updatedImages.push(image);
+            continue;
+          }
+          
+          try {
+            // Generate suggested name - pass current usedNames, usedAdjectives, and usedNouns sets which get updated as we go
+            const generated = await generateName({
+              preset: currentPresetValue,
+              wordBanks: allWordBanks,
+              usedNames: currentUsedNames,
+              usedAdjectives: currentUsedAdjectives,
+              usedNouns: currentUsedNouns,
+              extension: image.extension,
+              maxLength,
+            });
+
+            // Final safety check: verify the name is still unique before committing
+            const fullSlug = `${generated.slug}${image.extension}`;
+            if (currentUsedNames.has(fullSlug)) {
+              // This should never happen with sequential processing, but be safe
+              console.warn(`Name collision detected for ${fullSlug}, regenerating...`);
+              // Regenerate with updated usedNames, usedAdjectives, and usedNouns sets
+              const regenerated = await generateName({
+                preset: currentPresetValue,
+                wordBanks: allWordBanks,
+                usedNames: currentUsedNames,
+                usedAdjectives: currentUsedAdjectives,
+                usedNouns: currentUsedNouns,
+                extension: image.extension,
+                maxLength,
+              });
+              const regeneratedSlug = `${regenerated.slug}${image.extension}`;
+              currentUsedNames.add(regeneratedSlug);
+              addUsedName(regeneratedSlug);
+              await registerName(regenerated.name, currentPresetValue.id, settings?.locale, image.extension);
+              updatedImages.push({
+                ...image,
+                suggestedName: regenerated.name,
+                currentName: regenerated.name,
+              });
+              continue;
+            }
+
+            // Register name in both session and persistent ledger
+            // Update both the local set and the store
+            currentUsedNames.add(fullSlug);
+            addUsedName(fullSlug);
+            await registerName(generated.name, currentPresetValue.id, settings?.locale, image.extension);
+
+            updatedImages.push({
+              ...image,
+              suggestedName: generated.name,
+              currentName: generated.name,
+            });
+          } catch (err: any) {
+            console.error('Error generating name for image:', err);
+            // Return original image if generation fails
+            updatedImages.push(image);
+          }
+        }
+
+        // Final check: ensure images haven't been cleared
+        const finalImages = images;
+        if (finalImages.length === 0) {
+          console.warn('Images were cleared before updating - aborting update');
+          return;
+        }
+
+        // Ensure we have the same number of images (safety check)
+        if (updatedImages.length === finalImages.length) {
+          setImages(updatedImages);
+        } else {
+          console.warn(`Image count mismatch: expected ${finalImages.length}, got ${updatedImages.length}`);
+          // Only update if we have some valid images - don't clear images if count is wrong
+          if (updatedImages.length > 0 && updatedImages.length === finalImages.length) {
+            setImages(updatedImages);
+          } else {
+            // If count is wrong, something went wrong - keep original images
+            console.error(`Image count mismatch during name generation - keeping original ${finalImages.length} images`);
+          }
+        }
+      } catch (err: any) {
+        console.error('Error generating image names:', err);
+        // Don't clear images on error - keep existing images
+      } finally {
+        isGeneratingNamesRef.current = false;
+      }
+    }
+
+    // Only generate names if we have images without names
+    // Generate names when we have theme, preset, and images - regardless of step
+    // (names can be generated on step 2 if user goes back, or step 3 when template is selected)
+    const imagesNeedNames = images.length > 0 && images.some(img => !img.suggestedName || !img.currentName);
+    if (imagesNeedNames && currentTheme && currentPreset) {
+      generateImageNames();
+    }
+  }, [currentTheme?.id, currentPreset?.id, images, currentStep, wordBanks, sessionUsedNames, settings, addUsedName, setImages]);
+
+    // Regenerate names for unlocked images
+    const handleRegenerateNames = async () => {
+      if (!currentTheme || !currentPreset || images.length === 0) {
+        return;
+      }
+
+      try {
+        // Load word banks filtered by selected theme
+        let allWordBanks = wordBanks.length > 0 
+          ? wordBanks 
+          : await db.wordBanks.toArray();
+
+        // Filter by selected theme (exclude word banks without themeId)
+        if (currentTheme) {
+          allWordBanks = allWordBanks.filter(b => b.themeId && b.themeId === currentTheme.id);
+        } else {
+          // Even if no theme selected, exclude word banks without themeId
+          allWordBanks = allWordBanks.filter(b => b.themeId);
+        }
+
+        if (allWordBanks.length === 0) {
+          console.warn('No word banks available for the selected theme');
+          return;
+        }
+
+        const maxLength = settings?.maxFilenameLength || 255;
+        
+        // Release old names from ledger for unlocked images
+        const oldSlugs: string[] = [];
+        images.forEach(image => {
+          if (!image.locked && image.currentName) {
+            const slug = image.currentName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+            oldSlugs.push(`${slug}${image.extension}`);
+          }
+        });
+        if (oldSlugs.length > 0) {
+          await releaseNames(oldSlugs);
+        }
+
+        // Generate new names for unlocked images only - process sequentially to ensure unique names and avoid adjective/noun repetition
+        const updatedImages: ImageFile[] = [];
+        const currentUsedNames = new Set(sessionUsedNames);
+        const currentUsedAdjectives = new Set<string>(); // Track adjectives used in this regeneration
+        const currentUsedNouns = new Set<string>(); // Track nouns used in this regeneration
+        
+        for (const image of images) {
+          // Skip locked images
+          if (image.locked) {
+            updatedImages.push(image);
+            continue;
+          }
+          
+          try {
+            // Generate new suggested name - pass current usedNames, usedAdjectives, and usedNouns sets which get updated as we go
+            const generated = await generateName({
+              preset: currentPreset,
+              wordBanks: allWordBanks,
+              usedNames: currentUsedNames,
+              usedAdjectives: currentUsedAdjectives,
+              usedNouns: currentUsedNouns,
+              extension: image.extension,
+              maxLength,
+            });
+
+            // Final safety check: verify the name is still unique before committing
+            const fullSlug = `${generated.slug}${image.extension}`;
+            if (currentUsedNames.has(fullSlug)) {
+              // This should never happen with sequential processing, but be safe
+              console.warn(`Name collision detected for ${fullSlug}, regenerating...`);
+              // Regenerate with updated usedNames, usedAdjectives, and usedNouns sets
+              const regenerated = await generateName({
+                preset: currentPreset,
+                wordBanks: allWordBanks,
+                usedNames: currentUsedNames,
+                usedAdjectives: currentUsedAdjectives,
+                usedNouns: currentUsedNouns,
+                extension: image.extension,
+                maxLength,
+              });
+              const regeneratedSlug = `${regenerated.slug}${image.extension}`;
+              currentUsedNames.add(regeneratedSlug);
+              addUsedName(regeneratedSlug);
+              await registerName(regenerated.name, currentPreset.id, settings?.locale, image.extension);
+              updatedImages.push({
+                ...image,
+                suggestedName: regenerated.name,
+                currentName: regenerated.name,
+              });
+              continue;
+            }
+
+            // Register new name in both session and persistent ledger
+            // Update both the local set and the store
+            currentUsedNames.add(fullSlug);
+            addUsedName(fullSlug);
+            await registerName(generated.name, currentPreset.id, settings?.locale, image.extension);
+
+            updatedImages.push({
+              ...image,
+              suggestedName: generated.name,
+              currentName: generated.name,
+            });
+          } catch (err: any) {
+            console.error('Error regenerating name for image:', err);
+            // Return original image if generation fails
+            updatedImages.push(image);
+          }
+        }
+
+        // Update images
+        if (updatedImages.length === images.length) {
+          setImages(updatedImages);
+        }
+      } catch (err: any) {
+        console.error('Error regenerating image names:', err);
+      }
+    };
+
+  // Handle rename operation
+  const handleRenameFiles = useCallback(async () => {
+    if (images.length === 0) {
+      addError('', 'No images selected. Please go back to step 1 to select images.');
+      return;
+    }
+
+    // Check if images have current names
+    const imagesWithoutNames = images.filter(img => !img.currentName);
+    if (imagesWithoutNames.length > 0) {
+      addError('', `${imagesWithoutNames.length} image(s) have no generated name. Please generate names first.`);
+      return;
+    }
+
+    // Check if we can rename in place (have file handles with move() support)
+    const hasFileHandles = images.every(img => img.fileHandle);
+    const canRenameInPlace = hasFileHandles && images.some(img => img.fileHandle && 'move' in img.fileHandle);
+    
+    // Determine if we need a destination directory
+    let workingDirectory: FileSystemDirectoryHandle | null = selectedDirectory;
+    let userSelectedFolder = false; // Track if user just selected a folder via picker
+    
+    // If no directory is selected but we need one, prompt user
+    if (!selectedDirectory && !canRenameInPlace) {
+      try {
+        setProcessing(true);
+        clearErrors();
+        const destDir = await selectDirectory();
+        if (!destDir) {
+          addError('', 'Destination folder selection cancelled. Please select a folder to rename files.');
+          setProcessing(false);
+          return;
+        }
+        workingDirectory = destDir;
+        setSelectedDirectory(destDir);
+        userSelectedFolder = true; // User explicitly selected this folder - use it directly
+      } catch (err: any) {
+        addError('', `Failed to select destination folder: ${err.message}`);
+        setProcessing(false);
+        return;
+      }
+    }
+
+    try {
+      setProcessing(true);
+      clearErrors();
+      setRenameResult(null);
+
+      const batchId = `batch-${Date.now()}`;
+      const entries: AuditEntry[] = [];
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Get destination settings (used for both subfolder creation and path tracking)
+      const destinationOption = settings?.renameDestinationOption || 'subfolder';
+      const subfolderName = settings?.renameSubfolderName || 'renamed';
+      const siblingFolderName = settings?.renameSiblingFolderName || 'original';
+
+      // Determine destination directory and track folder name for path construction
+      let destinationDir: FileSystemDirectoryHandle | null = null;
+      let destinationFolderName: string = ''; // Track the folder name for path construction
+      
+      if (workingDirectory) {
+        if (userSelectedFolder) {
+          // User explicitly selected a folder via picker - use it directly
+          destinationDir = workingDirectory;
+          destinationFolderName = workingDirectory.name; // Use the selected folder's name
+        } else {
+          // Files were dropped from a folder - create subfolder based on settings
+          const folderName = destinationOption === 'subfolder' ? subfolderName : siblingFolderName;
+          // Sanitize folder name to prevent path separator issues
+          const sanitizedFolderName = folderName.split(/[/\\]/).filter(Boolean).pop() || folderName;
+          destinationDir = await createDirectory(workingDirectory, sanitizedFolderName);
+          destinationFolderName = sanitizedFolderName; // Use the created subfolder name
+        }
+      }
+
+      // Process each image
+      for (let i = 0; i < images.length; i++) {
+        const image = images[i];
+        setProgress(i + 1, images.length);
+
+        // Skip locked files - they keep their original name
+        if (image.locked) {
+          entries.push({
+            oldPath: image.path,
+            oldName: image.originalName,
+            newPath: image.path,
+            newName: image.originalName,
+            status: 'success',
+            timestamp: new Date().toISOString(),
+          });
+          successCount++;
           continue;
         }
-        
+
         try {
-          const result = await uploadLocal(file);
-          uploaded.push({
-            ...result,
-            originalName: file.name,
-            file,
-            sourceType: 'local',
-          });
-        } catch (err) {
-          console.error(`Failed to upload ${file.name}:`, err);
-        }
-      }
-      
-      // Duplicates are silently skipped
-      
-      if (uploaded.length > 0) {
-        const newImages = [...images, ...uploaded];
-        setImages(newImages);
-        
-        // Auto-select all variants for new images
-        if (template) {
-          const newMap = new Map(selectedVariants);
-          uploaded.forEach(img => {
-            newMap.set(img.fileId, template.variants.map(v => v.id));
-          });
-          setSelectedVariants(newMap);
-        }
-        
-        // Move to next step if we have images and template
-        if (template && currentStep === 2) {
-          setCurrentStep(3);
-        }
-      }
-    } finally {
-      setUploading(false);
-    }
-  };
+          if (!image.currentName) {
+            throw new Error(`Image "${image.originalName}" has no generated name.`);
+          }
 
-  const handleCloudUrlsAdded = (urls: Array<{ url: string; name: string; sourceType: 'dropbox' | 'googledrive' }>) => {
-    const uploaded: UploadedFile[] = [];
-    const duplicates: string[] = [];
-    
-    urls.forEach((item, index) => {
-      // Check if this file already exists (by name and source type)
-      const isDuplicate = images.some(
-        img => img.originalName === item.name && img.sourceType === item.sourceType
-      );
-      
-      if (isDuplicate) {
-        duplicates.push(item.name);
-        return;
-      }
-      
-      // Generate a unique fileId for cloud URLs
-      const fileId = `cloud-${item.sourceType}-${Date.now()}-${index}`;
-      uploaded.push({
-        fileId,
-        publicUrl: item.url, // Use the cloud URL directly
-        originalName: item.name,
-        sourceType: item.sourceType,
-        // No file object needed for cloud URLs
-      });
-    });
+          const newName = `${image.currentName}${image.extension}`;
+          const oldPath = image.path;
+          let newPath = oldPath;
 
-    // Duplicates are silently skipped
+          // Register name in both session and persistent ledger
+          const fullSlug = `${image.currentName}${image.extension}`;
+          addUsedName(fullSlug);
+          await registerName(image.currentName, undefined, undefined, image.extension);
 
-    if (uploaded.length > 0) {
-      const newImages = [...images, ...uploaded];
-      setImages(newImages);
-
-      // Auto-select all variants for new images
-      if (template) {
-        const newMap = new Map(selectedVariants);
-        uploaded.forEach(img => {
-          newMap.set(img.fileId, template.variants.map(v => v.id));
-        });
-        setSelectedVariants(newMap);
-      }
-
-      // Move to next step if we have images and template
-      if (template && currentStep === 2) {
-        setCurrentStep(3);
-      }
-    }
-  };
-
-  const handleVariantToggle = (imageId: string, variantId: string) => {
-    const newMap = new Map(selectedVariants);
-    const current = newMap.get(imageId) || [];
-    
-    if (current.includes(variantId)) {
-      newMap.set(imageId, current.filter(id => id !== variantId));
-    } else {
-      newMap.set(imageId, [...current, variantId]);
-    }
-    
-    setSelectedVariants(newMap);
-  };
-
-  const handleRemoveImage = (imageId: string) => {
-    // Remove image from images array
-    setImages(prevImages => prevImages.filter(img => img.fileId !== imageId));
-    
-    // Remove image's variant selections
-    const newMap = new Map(selectedVariants);
-    newMap.delete(imageId);
-    setSelectedVariants(newMap);
-  };
-
-  const handleSelectedFilesChange = useCallback((count: number, handler: () => Promise<void>) => {
-    setSelectedCloudFilesCount(count);
-    setAddCloudFilesHandler(() => handler);
-  }, []);
-
-  const handleMetadataChange = (newMetadata: Partial<CreateFromTemplateBody>) => {
-    setMetadata(newMetadata);
-  };
-
-  const createProducts = async () => {
-    if (!template || images.length === 0) {
-      alert('No template or images selected');
-      return;
-    }
-
-    if (!metadata.description) {
-      alert('Description is required');
-      return;
-    }
-
-    setCreating(true);
-    const newResults: ProductCreationResult[] = [];
-    const totalImages = images.length;
-
-    // Create one product per image
-    for (let index = 0; index < images.length; index++) {
-      const image = images[index];
-      
-      // Update progress
-      setUploadProgress({
-        current: index + 1,
-        total: totalImages,
-        currentImageName: image.originalName || image.fileId,
-      });
-      const imageVariantIds = selectedVariants.get(image.fileId) || [];
-      
-      if (imageVariantIds.length === 0) {
-        newResults.push({
-          templateId: template.id,
-          status: 'error',
-          error: `No variants selected for image: ${image.originalName || image.fileId}`,
-        });
-        continue;
-      }
-
-      // Build variant assignments: map image to all placeholders in selected variants
-      const variantAssignments: VariantAssignment[] = [];
-      
-      for (const variantId of imageVariantIds) {
-        const variant = template.variants.find(v => v.id === variantId);
-        if (!variant) continue;
-
-        // Map the image to ALL placeholders in this variant
-        const placeholders: PlaceholderAssignment[] = variant.placeholders.map(placeholder => ({
-          name: placeholder.name,
-          fileUrl: image.publicUrl,
-          // fitMethod can be added if needed - defaults to 'slice' per API docs
-        }));
-
-        variantAssignments.push({
-          templateVariantId: variantId,
-          imagePlaceholders: placeholders,
-        });
-      }
-
-      // Generate title: if metadata.title (prefix) is provided, use "prefix - filename", else just filename
-      // Remove file extension and convert to Headline Case
-      const rawImageName = (image.originalName || image.fileId).replace(/\.[^/.]+$/, '');
-      const imageName = toHeadlineCase(rawImageName);
-      const productTitle = metadata.title 
-        ? `${metadata.title} - ${imageName}`
-        : imageName;
-
-      // Create product payload per API docs
-      // Both title and description are REQUIRED per API docs
-      const payload: CreateFromTemplateBody = {
-        templateId: template.id,
-        title: productTitle,
-        description: metadata.description || 'Product description', // Fallback if somehow empty
-        tags: metadata.tags,
-        isVisibleInTheOnlineStore: metadata.isVisibleInTheOnlineStore,
-        salesChannels: metadata.salesChannels,
-        variants: variantAssignments,
-      };
-
-      newResults.push({
-        templateId: template.id,
-        status: 'pending',
-        createdAt: Date.now(), // Track when upload started
-      });
-
-      setResults([...newResults]);
-
-      try {
-        // Official API response per docs: id, previewUrl, status, etc.
-        const response = await createFromTemplate(payload) as any;
-        
-        const resultIndex = newResults.length - 1;
-        // Check if response looks complete - product ID is critical
-        const hasProductId = response.id || response.productId;
-        
-        // Check if variants were sent
-        const variantsSent = payload.variants.length;
-        const totalPlaceholders = payload.variants.reduce((sum: number, v: VariantAssignment) => sum + v.imagePlaceholders.length, 0);
-        
-        // Check if Gelato actually processed the variants (response.variants should not be empty)
-        const variantsInResponse = Array.isArray(response.variants) ? response.variants.length : 0;
-        const productImagesInResponse = Array.isArray(response.productImages) ? response.productImages.length : 0;
-        
-        let status: 'success' | 'warning' = hasProductId ? 'success' : 'warning';
-        let warningMessage: string | undefined;
-        
-        if (!hasProductId) {
-          warningMessage = 'Product created but missing product ID in response. Check server logs for details.';
-        } else if (variantsSent === 0) {
-          status = 'warning';
-          warningMessage = `Product created but no variants were included (variants array was empty). Expected at least 1 variant.`;
-        } else if (totalPlaceholders === 0) {
-          status = 'warning';
-          warningMessage = `Product created but no image placeholders were included. Variants: ${variantsSent}, Placeholders: 0.`;
-        } else if (variantsInResponse === 0 && variantsSent > 0) {
-          // This is expected - Gelato processes images asynchronously
-          // Check if status indicates async processing
-          const isProcessing = response.status === 'created' && response.isReadyToPublish === false;
+          // Check if fileHandle is a real FileSystemFileHandle or just a File object
+          const isRealFileHandle = image.fileHandle && !(image.fileHandle instanceof File) && 'getFile' in image.fileHandle;
           
-          if (isProcessing) {
-            // This is normal - Gelato is processing images in the background
-            status = 'success'; // Mark as success since product was created
-            warningMessage = `✅ Product created successfully! Images are being processed in the background by Gelato (this is normal and expected). 
-            
-            The empty variants array is expected at this stage. Gelato will:
-            1) Fetch your images from the provided URLs
-            2) Process and optimize them for each variant
-            3) Update the product with variants and thumbnails (usually takes 5-10 minutes)
-            
-            What to do:
-            • Wait 5-10 minutes for processing to complete
-            • Check your server logs for "✅ GELATO FETCH DETECTED" - this confirms Gelato accessed your images
-            • Refresh the Gelato dashboard - variants and thumbnails will appear automatically when ready
-            • Your product ID is: ${response.id || response.productId || 'N/A'}`;
+          // If we have a file handle with move() support and no destination directory, rename in place
+          if (isRealFileHandle && !destinationDir && 'move' in image.fileHandle) {
+            await renameFile(image.fileHandle as FileSystemFileHandle, newName);
+            newPath = image.path.replace(image.originalName, newName);
+          } else if (destinationDir && image.fileHandle) {
+            // Move to destination directory (works with both FileSystemFileHandle and File objects)
+            try {
+              await moveFile(image.fileHandle as any, destinationDir, newName);
+              // Use the tracked destination folder name for path construction
+              newPath = destinationFolderName ? `${destinationFolderName}/${newName}` : newName;
+            } catch (moveErr: any) {
+              console.error('Error moving file:', moveErr);
+              throw new Error(`Failed to move file to destination: ${moveErr.message}`);
+            }
+          } else if (!image.fileHandle) {
+            throw new Error('Files selected via file input require a destination folder. Please select a folder first.');
           } else {
-            // Unusual case - status doesn't indicate processing
-            status = 'warning';
-            warningMessage = `⚠️ Product created but variants array is empty and status doesn't indicate processing. Check server logs to see if Gelato fetched your images.`;
+            throw new Error('Unable to rename file. Please ensure a destination folder is selected.');
           }
-        } else if (productImagesInResponse === 0 && totalPlaceholders > 0) {
-          status = 'warning';
-          warningMessage = `Product created but no product images in response (sent ${totalPlaceholders} placeholders). Images may still be processing, or Gelato couldn't fetch them.`;
-        } else {
-          // Product created successfully
-          // But still show info if variants/images are low
-          if (variantsInResponse < variantsSent) {
-            warningMessage = `Partial success: Sent ${variantsSent} variants but only ${variantsInResponse} were processed. Some images may have failed.`;
-          }
+
+          entries.push({
+            oldPath,
+            oldName: image.originalName,
+            newPath,
+            newName,
+            status: 'success',
+            timestamp: new Date().toISOString(),
+          });
+
+          successCount++;
+        } catch (err: any) {
+          const errorMsg = err.message || 'Unknown error';
+          console.error(`Error processing image ${image.originalName}:`, err);
+          addError(image.id, errorMsg);
+          
+          entries.push({
+            oldPath: image.path,
+            oldName: image.originalName,
+            newPath: '',
+            newName: '',
+            status: 'error',
+            error: errorMsg,
+            timestamp: new Date().toISOString(),
+          });
+
+          errorCount++;
         }
-        
-        newResults[resultIndex] = {
-          templateId: template.id,
-          status,
-          productId: response.id || response.productId || '',
-          previewUrl: response.previewUrl || '',
-          // Note: API docs show previewUrl but not adminUrl - check if it exists
-          adminUrl: response.adminUrl || response.externalId || '',
-          payloadSent: payload,
-          responseReceived: response,
-          imageUrlSent: image.publicUrl,
-          error: warningMessage,
-          createdAt: newResults[resultIndex]?.createdAt || Date.now(), // Preserve upload start time
-        };
-      } catch (err) {
-        const resultIndex = newResults.length - 1;
-        newResults[resultIndex] = {
-          templateId: template.id,
-          status: 'error',
-          error: err instanceof Error ? err.message : 'Unknown error',
-          errorDetails: err,
-          payloadSent: payload,
-          imageUrlSent: image.publicUrl,
-          createdAt: newResults[resultIndex]?.createdAt || Date.now(), // Preserve upload start time
-        };
       }
 
-      setResults([...newResults]);
-
-      // Small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    setCreating(false);
-    setUploadProgress(null); // Clear progress when done
-  };
-
-  const handleRetry = async (index: number) => {
-    const result = results[index];
-    if (!result || result.status !== 'error' || !template) return;
-
-    // Find the image that corresponds to this result
-    const image = images[index];
-    if (!image) return;
-
-    const imageVariantIds = selectedVariants.get(image.fileId) || [];
-    if (imageVariantIds.length === 0) return;
-
-    // Rebuild the payload same as createProducts
-    const variantAssignments: VariantAssignment[] = [];
-    
-    for (const variantId of imageVariantIds) {
-      const variant = template.variants.find(v => v.id === variantId);
-      if (!variant) continue;
-
-      const placeholders: PlaceholderAssignment[] = variant.placeholders.map(placeholder => ({
-        name: placeholder.name,
-        fileUrl: image.publicUrl,
-      }));
-
-      variantAssignments.push({
-        templateVariantId: variantId,
-        imagePlaceholders: placeholders,
-      });
-    }
-
-    // Generate title: if metadata.title (prefix) is provided, use "prefix - filename", else just filename
-    // Remove file extension and convert to Headline Case
-    const rawImageName = (image.originalName || image.fileId).replace(/\.[^/.]+$/, '');
-    const imageName = toHeadlineCase(rawImageName);
-    const productTitle = metadata.title 
-      ? `${metadata.title} - ${imageName}`
-      : imageName;
-
-    const payload: CreateFromTemplateBody = {
-      templateId: template.id,
-      title: productTitle,
-      description: metadata.description || 'Product description', // Fallback if somehow empty
-      tags: metadata.tags,
-      isVisibleInTheOnlineStore: metadata.isVisibleInTheOnlineStore,
-      salesChannels: metadata.salesChannels,
-      variants: variantAssignments,
-    };
-
-    const newResults = [...results];
-    newResults[index] = {
-      ...result,
-      status: 'pending',
-    };
-    setResults(newResults);
-
-    try {
-      const response = await createFromTemplate(payload) as any;
-      
-      newResults[index] = {
-        templateId: template.id,
-        status: 'success',
-        productId: response.id || '',
-        previewUrl: response.previewUrl || '',
-        adminUrl: response.adminUrl || response.externalId || '',
+      // Save audit log
+      const auditBatch: AuditBatch = {
+        id: `audit-${Date.now()}`,
+        batchId,
+        entries,
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        status: errorCount === 0 ? 'completed' : errorCount === images.length ? 'failed' : 'partial',
       };
-    } catch (err) {
-      newResults[index] = {
-        ...result,
-        status: 'error',
-        error: err instanceof Error ? err.message : 'Unknown error',
-        errorDetails: err,
-      };
-    }
 
-    setResults(newResults);
-  };
+      await addAuditBatch(auditBatch);
+      setLastBatchId(batchId);
+      setRenameResult({ successCount, errorCount, batchId });
 
-  const handleNext = () => {
-    if (currentStep === 1) {
-      // Step 1: Template - validate template is loaded before advancing
-      if (template) {
-        setCurrentStep(2);
-      }
-      return;
-    }
-    
-    if (currentStep === 2) {
-      // Step 2: Images - move to variants if images exist
-      if (images.length > 0 && template) {
-        setCurrentStep(3);
-      }
-      return;
-    }
-    
-    if (currentStep === 3) {
-      // Step 3: Variants - validate and move to metadata
-      const invalidImages = images.filter(img => {
-        const variants = selectedVariants.get(img.fileId) || [];
-        return variants.length === 0;
-      });
-      
-      if (invalidImages.length > 0) {
-        alert(`Please select at least one variant for each image. Images without variants: ${invalidImages.map(i => i.originalName || i.fileId).join(', ')}`);
-        return;
-      }
-      
-      setCurrentStep(4);
-      return;
-    }
-    
-    if (currentStep === 4) {
-      // Step 4: Metadata - validate and move to review
-      if (!metadata.description) {
-        alert('Description is required');
-        return;
-      }
-
+      // Move to step 5 to show success summary
       setCurrentStep(5);
-      return;
+    } catch (err: any) {
+      console.error('Batch rename error:', err);
+      const errorMsg = err.message || 'An unexpected error occurred during rename';
+      addError('', errorMsg);
+    } finally {
+      setProcessing(false);
     }
+  }, [
+    images,
+    selectedDirectory,
+    setSelectedDirectory,
+    settings,
+    setProcessing,
+    setProgress,
+    addError,
+    clearErrors,
+    addAuditBatch,
+    setLastBatchId,
+    addUsedName,
+  ]);
 
-    if (currentStep === 5) {
-      // Step 5: Review - navigate to Queue
-      setCurrentStep(6);
-      return;
-    }
-  };
-
-  const handlePrevious = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-      // Reset results and progress if going back from review
-      if (currentStep === 5) {
-        setResults([]);
-        setUploadProgress(null);
-      }
-    }
-  };
-
-  const handleStartNew = () => {
-    // Save current results to history before resetting
-    if (results.length > 0) {
-      const historyKey = `podmate_upload_history_${Date.now()}`;
-      const historyEntry = {
-        timestamp: new Date().toISOString(),
-        template: template?.name || 'Unknown',
-        imageCount: images.length,
-        results: results,
-      };
-      try {
-        const existingHistory = JSON.parse(localStorage.getItem('podmate_upload_history') || '[]');
-        existingHistory.push(historyEntry);
-        // Keep only last 50 uploads in history
-        const trimmedHistory = existingHistory.slice(-50);
-        localStorage.setItem('podmate_upload_history', JSON.stringify(trimmedHistory));
-      } catch (err) {
-        console.error('Failed to save upload history:', err);
-      }
-    }
-
-    // Clear sessionStorage before resetting
-    try {
-      sessionStorage.removeItem('podmate_currentStep');
-      sessionStorage.removeItem('podmate_template');
-      sessionStorage.removeItem('podmate_images');
-      sessionStorage.removeItem('podmate_selectedVariants');
-      sessionStorage.removeItem('podmate_metadata');
-    } catch (err) {
-      console.error('Failed to clear sessionStorage:', err);
-    }
-
-    // Set flag to skip restoring state
-    skipRestoreRef.current = true;
-
-    // Reset all state
-    setCurrentStep(1);
-    setTemplate(null);
-    setImages([]);
-    setSelectedVariants(new Map());
-    setMetadata({});
-    setResults([]);
-    setCreating(false);
-    setUploading(false);
-    setUploadProgress(null);
-  };
-
-  const handleStepClick = (stepId: number) => {
-    // Allow clicking on completed steps to navigate back
-    if (stepId < currentStep || stepId === currentStep) {
-      setCurrentStep(stepId);
+  const handleStepClick = (step: number) => {
+    if (step <= currentStep) {
+      setCurrentStep(step);
     }
   };
 
-  const renderStepContent = () => {
-    switch (currentStep) {
-          case 1:
+  const canProceedToStep2 = images.length > 0 || selectedImageCount > 0;
+  const canProceedToStep3 = currentTheme !== null;
+  const canProceedToStep4 = currentPreset !== null;
+  const canProceedToStep5 = images.length > 0;
+
+  if (!isInitialized) {
             return (
-              <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
-                <div className="p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Step 1: Select Template</h2>
-                  <TemplatePicker onTemplatesLoaded={handleTemplatesLoaded} />
-                </div>
-                <div className="border-t border-gray-200 dark:border-gray-700"></div>
-                <div className="p-6 flex justify-between items-center">
-                  {currentStep === 1 ? (
-                    <div></div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handlePrevious}
-                      className="text-gray-900 bg-white border border-gray-300 hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:focus:ring-gray-700"
-                    >
-                      ← Previous
-                    </button>
-                  )}
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Step {currentStep} of {STEPS.length}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    disabled={!template}
-                    className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next →
-                  </button>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Initializing...</p>
                 </div>
               </div>
             );
+  }
 
-          case 2:
             return (
-              <div className="bg-white dark:bg-gray-800 shadow rounded-lg flex flex-col" style={{ height: 'calc(100vh - 120px)' }}>
-                <div className="p-6 flex flex-col flex-1 min-h-0">
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Step 2: Upload Images</h2>
-                  {template && (
-                    <div className="mb-4 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-md flex-shrink-0">
-                      <p className="text-sm text-indigo-900 dark:text-indigo-300">
-                        <span className="font-medium">Template:</span> {template.name}
+    <div className="flex flex-col h-full min-h-0 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-shrink-0">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Renamely</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            Batch rename images with configurable templates
                       </p>
                     </div>
-                  )}
-                  <div className="flex-1 min-h-0 overflow-hidden">
-                    <FileBrowser 
-                      onFilesAdded={handleFilesAdded} 
-                      onCloudUrlsAdded={handleCloudUrlsAdded}
-                      initialTab={(() => {
-                        try {
-                          const params = new URLSearchParams(window.location.search);
-                          const tabParam = params.get('tab');
-                          if (tabParam === 'dropbox' || tabParam === 'googledrive' || tabParam === 'local') {
-                            return tabParam;
-                          }
-                          return undefined;
-                        } catch {
-                          return undefined;
-                        }
-                      })()}
-                      onSelectedFilesChange={handleSelectedFilesChange}
-                    />
-                  </div>
-                  {images.length > 0 && (
-                    <div className="mt-4 space-y-2 flex-shrink-0">
-                      {images.some(img => !img.sourceType || img.sourceType === 'local') && (
-                        <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
-                          <p className="text-sm text-yellow-900 dark:text-yellow-300">
-                            <strong>⚠️ Keep app running:</strong> Some images are uploaded locally. Keep your computer and tunnel running until Gelato finishes downloading images (check server logs for "✅ GELATO FETCH DETECTED").
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="border-t border-gray-200 dark:border-gray-700"></div>
-                <div className="p-6 flex justify-between items-center">
-                  <button
-                    type="button"
-                    onClick={handlePrevious}
-                    disabled={currentStep === 1}
-                    className="text-gray-900 bg-white border border-gray-300 hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:focus:ring-gray-700"
-                  >
-                    ← Previous
-                  </button>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Step {currentStep} of {STEPS.length}
-                  </div>
-                  {currentStep === 2 && selectedCloudFilesCount > 0 && addCloudFilesHandler ? (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          setUploading(true);
-                          if (addCloudFilesHandler) {
-                            await addCloudFilesHandler();
-                            // Auto-advance to next step if we have images and template after adding
-                            if (template && images.length > 0) {
-                              setCurrentStep(3);
-                            }
-                          }
-                        } catch (error) {
-                          console.error('Error adding cloud files:', error);
-                          alert(`Failed to add files: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                        } finally {
-                          setUploading(false);
-                        }
-                      }}
-                      disabled={uploading}
-                      className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      {uploading && (
-                        <svg className="animate-spin h-4 w-4 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      )}
-                      {uploading ? `Adding ${selectedCloudFilesCount} file${selectedCloudFilesCount !== 1 ? 's' : ''}...` : `Add ${selectedCloudFilesCount} File${selectedCloudFilesCount !== 1 ? 's' : ''} →`}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleNext}
-                      disabled={images.length === 0}
-                      className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Next →
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
+      </div>
 
-          case 3:
-            return (
-              <div className="bg-white dark:bg-gray-800 shadow rounded-lg flex flex-col" style={{ height: 'calc(100vh - 120px)' }}>
-                <div className="p-6 flex-shrink-0">
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Step 3: Select Variants</h2>
-                  {images.length === 0 ? (
-                    <p className="text-gray-500">Please upload images first in Step 2.</p>
-                  ) : (
-                    <div className="mb-4 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-md">
-                      <p className="text-sm text-indigo-900 dark:text-indigo-300">
-                        <span className="font-medium">Uploading {images.length} image{images.length !== 1 ? 's' : ''} in total</span>
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-                  {images.length > 0 && (
-                    <div className="flex-1 overflow-auto px-6 pb-6">
-                      <ImageVariantSelection
-                        template={template!}
-                        images={images}
-                        selectedVariants={selectedVariants}
-                        onVariantToggle={handleVariantToggle}
-                        onRemoveImage={handleRemoveImage}
-                      />
-                    </div>
-                  )}
-                </div>
-                <div className="border-t border-gray-200 dark:border-gray-700 flex-shrink-0"></div>
-                <div className="p-6 flex justify-between items-center flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={handlePrevious}
-                    disabled={currentStep === 1}
-                    className="text-gray-900 bg-white border border-gray-300 hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:focus:ring-gray-700"
-                  >
-                    ← Previous
-                  </button>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Step {currentStep} of {STEPS.length}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    disabled={images.length === 0 || (() => {
-                      // Check if all images have at least one variant selected
-                      const invalidImages = images.filter(img => {
-                        const variants = selectedVariants.get(img.fileId) || [];
-                        return variants.length === 0;
-                      });
-                      return invalidImages.length > 0;
-                    })()}
-                    className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next →
-                  </button>
-                </div>
-              </div>
-            );
-
-          case 4:
-            return (
-              <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
-                <div className="p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Step 4: Set Metadata</h2>
-                  <MetadataPanel
-                    initialTitle={metadata.title}
-                    initialDescription={metadata.description}
-                    onChange={handleMetadataChange}
-                  />
-                </div>
-                <div className="border-t border-gray-200 dark:border-gray-700"></div>
-                <div className="p-6 flex justify-between items-center">
-                  <button
-                    type="button"
-                    onClick={handlePrevious}
-                    disabled={currentStep === 1}
-                    className="text-gray-900 bg-white border border-gray-300 hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:focus:ring-gray-700"
-                  >
-                    ← Previous
-                  </button>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Step {currentStep} of {STEPS.length}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    disabled={!metadata.description}
-                    className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Review →
-                  </button>
-                </div>
-              </div>
-            );
-
-          case 5:
-            return (
-              <div className="bg-white dark:bg-gray-800 shadow rounded-lg flex flex-col" style={{ height: 'calc(100vh - 120px)' }}>
-                <div className="p-6 flex-shrink-0">
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Step 5: Review & Upload to Gelato</h2>
-                  
-                  {/* Upload Progress - shown while uploading (based on Flowbite progress bar) */}
-                  {uploadProgress && (
-                    <div className="mb-6">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-base font-medium text-gray-900 dark:text-white">
-                          Uploading to Gelato
-                        </span>
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          {uploadProgress.current} of {uploadProgress.total}
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-                        <div 
-                          className="bg-blue-600 h-2.5 rounded-full dark:bg-blue-500 transition-all duration-300" 
-                          style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
-                        ></div>
-                      </div>
-                      {uploadProgress.currentImageName && (
-                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-2">
-                          Processing: <span className="font-medium text-gray-900 dark:text-white">{uploadProgress.currentImageName}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Summary Info Panel */}
-                  <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                    <div className="flex items-start">
-                      <svg className="flex-shrink-0 w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                      <div className="ml-3 flex-1">
-                        <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-3">Upload Summary</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <span className="font-medium text-blue-900 dark:text-blue-200">Template:</span>
-                            <span className="ml-2 text-blue-800 dark:text-blue-300">{template?.name}</span>
-                          </div>
-                          <div>
-                            <span className="font-medium text-blue-900 dark:text-blue-200">Images:</span>
-                            <span className="ml-2 text-blue-800 dark:text-blue-300">{images.length}</span>
-                          </div>
-                          <div>
-                            <span className="font-medium text-blue-900 dark:text-blue-200">Title Prefix:</span>
-                            <span className="ml-2 text-blue-800 dark:text-blue-300">
-                              {metadata.title ? `"${metadata.title}" (will be combined with image filename)` : 'None (using image filename only)'}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="font-medium text-blue-900 dark:text-blue-200">Description:</span>
-                            <span className="ml-2 text-blue-800 dark:text-blue-300">{metadata.description || 'Not set'}</span>
-                          </div>
-                          <div className="md:col-span-2">
-                            <span className="font-medium text-blue-900 dark:text-blue-200">Products to Create:</span>
-                            <span className="ml-2 text-blue-800 dark:text-blue-300">{images.length} (one per image)</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-                  <div className="flex-1 overflow-auto px-6 pb-6">
-                    {/* Show preview table only when there are no results yet */}
-                    {images.length > 0 && results.length === 0 && (
-                      <div className="mb-6">
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Products Preview</h3>
-                        <div className="overflow-x-auto overflow-y-auto">
-                          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-50 dark:bg-gray-700">
-                              <tr>
-                                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                  Image
-                                </th>
-                                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                  Product Title
-                                </th>
-                                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                  Actions
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                              {images.map((image, index) => {
-                                // Generate product title the same way as in createProducts
-                                const rawImageName = (image.originalName || image.fileId).replace(/\.[^/.]+$/, '');
-                                const imageName = toHeadlineCase(rawImageName);
-                                const productTitle = metadata.title 
-                                  ? `${metadata.title} - ${imageName}`
-                                  : imageName;
-
-                                return (
-                                  <tr 
-                                    key={image.fileId} 
-                                    className="hover:bg-gray-50 dark:hover:bg-gray-700"
-                                  >
-                                    <td className="px-4 py-3 whitespace-nowrap">
-                                      <div className="flex items-center space-x-3">
-                                        <div className="flex-shrink-0">
-                                          <img
-                                            src={image.thumbnailUrl || image.publicUrl}
-                                            alt={image.originalName || image.fileId}
-                                            className="h-12 w-12 object-cover rounded-md border border-gray-300 dark:border-gray-600"
-                                          />
-                                        </div>
-                                        <div className="min-w-0">
-                                          <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                            {image.originalName || image.fileId}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </td>
-                                    <td className="px-4 py-3 whitespace-nowrap">
-                                      <span className="text-sm text-gray-900 dark:text-white">
-                                        {productTitle}
-                                      </span>
-                                    </td>
-                                    <td className="px-4 py-3 whitespace-nowrap">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (confirm(`Remove "${image.originalName || image.fileId}" from the upload?`)) {
-                                            handleRemoveImage(image.fileId);
-                                          }
-                                        }}
-                                        className="text-red-700 bg-white border border-red-300 hover:bg-red-50 focus:ring-4 focus:outline-none focus:ring-red-200 font-medium rounded-lg text-sm px-3 py-1.5 dark:bg-gray-800 dark:text-red-400 dark:border-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-300 dark:focus:ring-red-800"
-                                        title="Remove image"
-                                      >
-                                        Remove
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {results.length > 0 && (
-                      <RunSheet 
-                        results={results} 
-                        images={images} 
-                        onRetry={handleRetry}
-                        onStatusUpdate={(index, updatedResult) => {
-                          const newResults = [...results];
-                          newResults[index] = updatedResult;
-                          setResults(newResults);
-                        }}
-                        showExport={true}
-                        templateId={template?.id}
-                      />
-                    )}
-                  </div>
-                </div>
-
-                <div className="border-t border-gray-200 dark:border-gray-700 flex-shrink-0"></div>
-                <div className="p-6 flex justify-between items-center flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={handlePrevious}
-                    disabled={
-                      currentStep === 1 ||
-                      (results.length > 0 && !results.some(r => r.status === 'pending'))
-                    }
-                    className="text-gray-900 bg-white border border-gray-300 hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:focus:ring-gray-700"
-                  >
-                    ← Previous
-                  </button>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Step {currentStep} of {STEPS.length}
-                  </div>
-                  {/* Start Queue button */}
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    disabled={images.length === 0 || !metadata.description}
-                    className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-5 py-2.5 text-center disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Start Queue →
-                  </button>
-                </div>
-              </div>
-            );
-
-          case 6:
-            return (
-              template && (
-                <UnifiedQueue
-                  template={template}
-                  images={images}
-                  selectedVariants={selectedVariants}
-                  metadata={metadata}
-                  onComplete={() => {
-                    setCreating(false);
-                    setUploadProgress(null);
-                  }}
-                  onPrevious={handlePrevious}
-                  onStartOver={handleStartNew}
-                  autoStart={true}
-                />
-              )
-            );
-
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <div className="flex flex-col lg:flex-row gap-6 max-w-[1600px] mx-auto">
-      {/* Side Navigation with Stepper */}
-      <aside className="w-full lg:w-80 flex-shrink-0">
-        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 sticky top-8">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Progress</h2>
+      {/* Main Layout: Stepper on left, Content on right */}
+      <div className="flex gap-6 flex-1 min-h-0">
+        {/* Left Sidebar - Stepper */}
+        <div className="w-80 flex-shrink-0">
           <Stepper
             steps={STEPS}
             currentStep={currentStep}
             onStepClick={handleStepClick}
-            isCurrentStepComplete={currentStep === 5 && results.length > 0 && !results.some(r => r.status === 'pending') && !uploadProgress}
-          />
-        </div>
-      </aside>
+            isCurrentStepComplete={
+              (currentStep === 1 && canProceedToStep2) ||
+              (currentStep === 2 && canProceedToStep3) ||
+              (currentStep === 3 && canProceedToStep4) ||
+              (currentStep === 4 && canProceedToStep5)
+            }
+                    />
+                  </div>
 
-      {/* Main Content Area */}
-      <main className="flex-1 min-w-0">
-        {/* Step Content */}
-        {renderStepContent()}
-      </main>
+        {/* Right Side - Main Content */}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+                      <div className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col min-h-[472px] max-h-[calc(100vh-12rem)] overflow-hidden`}>
+              {/* Content Area */}
+              <div className={`p-6 flex flex-col ${
+                currentStep === 1 ? 'flex-1 min-h-0' : currentStep === 2 || currentStep === 3 || currentStep === 4 ? 'flex-1 min-h-0' : 'flex-1 min-h-0'
+              }`}>
+              {currentStep === 1 && (
+                <div className="space-y-4 flex flex-col min-w-0 min-h-0 flex-1">
+                  <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100 flex-shrink-0">Select images</h2>
+                  <div className="flex-1 min-h-0 flex flex-col">
+                    <FilePicker 
+                      ref={filePickerRef} 
+                      onSelectionChange={(selectedCount, scannedCount) => {
+                        setSelectedImageCount(selectedCount);
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {currentStep === 2 && (
+                <div className="space-y-4 flex flex-col min-w-0 min-h-0 flex-1">
+                  <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Select theme</h2>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate(`/settings?tab=themes&returnTo=home&step=2`)}
+                      className="inline-flex items-center"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create theme
+                    </Button>
+                  </div>
+                  {themes.length === 0 ? (
+                    <div className="text-center py-8 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <p className="text-gray-600 dark:text-gray-400 mb-4">
+                        No themes available. Create your first theme to get started.
+                      </p>
+                      <Button onClick={() => navigate(`/settings?tab=themes&returnTo=home&step=2`)}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create theme
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                      <div className="flex flex-col gap-3">
+                      {themes
+                        .sort((a, b) => {
+                          // Put 'universal' theme first
+                          if (a.id === 'universal') return -1;
+                          if (b.id === 'universal') return 1;
+                          return a.name.localeCompare(b.name);
+                        })
+                        .map((theme) => (
+                        <div
+                          key={theme.id}
+                          onClick={() => setCurrentTheme(theme)}
+                          className={`p-4 border rounded-lg cursor-pointer transition-colors w-full ${
+                            currentTheme?.id === theme.id
+                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                              : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold mb-1 text-gray-900 dark:text-gray-100">{theme.name}</h3>
+                              {theme.description && (
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{theme.description}</p>
+                              )}
+                              <p className="text-sm font-mono italic text-gray-500 dark:text-gray-400">
+                                e.g. {generateThemeExampleName(theme, wordBanks || [])}
+                              </p>
+                </div>
+                            {currentTheme?.id === theme.id && (
+                              <div className="ml-4 flex-shrink-0">
+                                <div className="w-6 h-6 rounded-full bg-blue-600 dark:bg-blue-500 flex items-center justify-center">
+                                  <Check className="w-4 h-4 text-white" />
+              </div>
+                    </div>
+                  )}
+                </div>
+                        </div>
+                      ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {currentStep === 3 && (
+                <div className="space-y-4 flex flex-col min-w-0 min-h-0 flex-1">
+                  <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Select template</h2>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate(`/settings?tab=templates&returnTo=home&step=3`)}
+                      className="inline-flex items-center"
+                    >
+                                              <Plus className="w-4 h-4 mr-2" />
+                        Create template
+                      </Button>
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                    {(() => {
+                      // Filter templates based on visibility settings
+                      // If visiblePresetIds is undefined/null/empty, show all templates
+                      // Otherwise, show only templates in the visiblePresetIds array
+                      let filteredPresets = presets;
+                      if (settings?.visiblePresetIds && Array.isArray(settings.visiblePresetIds) && settings.visiblePresetIds.length > 0) {
+                        filteredPresets = presets.filter(p => settings.visiblePresetIds!.includes(p.id));
+                      }
+                      
+                      // Sort templates logically: basic patterns first, then variations
+                      const getPresetOrder = (preset: Preset): number => {
+                        // Default presets get priority ordering
+                        const orderMap: Record<string, number> = {
+                          'default-adjective-noun': 1,
+                          'default-adjective-adjective-noun': 2,
+                          'default-adjective-adjective-adjective-noun': 3,
+                          'default-adjective-noun-counter': 4,
+                          'default-adjective-noun-date': 5,
+                          'default-adjective-noun-date-counter': 6,
+                          'default-date-adjective-noun': 7,
+                          'default-prefix-adjective-noun': 8,
+                          'default-prefix-adjective-adjective-noun': 9,
+                          'default-adjective-noun-suffix': 10,
+                          'default-adjective-noun-suffix-counter': 11,
+                          'default-noun-adjective': 12,
+                        };
+                        
+                        // If it's a default preset, use the order map
+                        if (preset.id in orderMap) {
+                          return orderMap[preset.id];
+                        }
+                        
+                        // For custom presets, sort by number of adjectives first, then alphabetically
+                        // Put them after all defaults (starting at 100)
+                        return 100 + (preset.numAdjectives * 10) + (preset.name.charCodeAt(0) || 0);
+                      };
+                      
+                      const availablePresets = [...filteredPresets].sort((a, b) => {
+                        const orderA = getPresetOrder(a);
+                        const orderB = getPresetOrder(b);
+                        if (orderA !== orderB) {
+                          return orderA - orderB;
+                        }
+                        // If same order, sort alphabetically by name
+                        return a.name.localeCompare(b.name);
+                      });
+                      return availablePresets.length === 0 ? (
+                      <div className="text-center py-8 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <p className="text-gray-600 dark:text-gray-400 mb-4">
+                          No templates available. Create your first template to get started.
+                        </p>
+                        <Button onClick={() => navigate(`/settings?tab=templates&returnTo=home&step=3`)}>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Create Template
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-3 pr-2">
+                        {availablePresets.map((preset) => (
+                          <div
+                            key={preset.id}
+                            className={`p-6 border rounded-lg transition-colors w-full flex-shrink-0 relative ${
+                              currentPreset?.id === preset.id
+                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                            }`}
+                          >
+                            {currentPreset?.id === preset.id && (
+                              <div className="absolute top-4 right-4">
+                                <div className="w-6 h-6 rounded-full bg-blue-600 dark:bg-blue-500 flex items-center justify-center">
+                                  <Check className="w-4 h-4 text-white" />
+                                </div>
+                              </div>
+                            )}
+                            <div className="flex items-start justify-between">
+                              <div
+                                className="flex-1 min-w-0 cursor-pointer"
+                                onClick={() => setCurrentPreset(preset)}
+                              >
+                                <h3 className="font-semibold mb-1 text-gray-900 dark:text-gray-100">{preset.name}</h3>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                                  {getTemplatePattern(preset.template)}
+                                </p>
+                                <p className="text-xs text-gray-600 dark:text-gray-500 mb-2">
+                                  Case: {getCaseStyleDisplay(preset.caseStyle)} | Delimiter: {getDelimiterDisplay(preset.delimiter)}
+                                </p>
+                                <p className="text-sm font-mono italic text-gray-500 dark:text-gray-400">
+                                  e.g. {generateExampleName(preset, wordBanks || [], currentTheme)}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+              </div>
+            );
+                  })()}
+                    </div>
+                </div>
+              )}
+
+                                                         {currentStep === 4 && (
+                   <div className="space-y-4 flex flex-col min-w-0 min-h-0 flex-1">
+                     <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                                               <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Review & edit</h2>
+                       <Button
+                         variant="outline"
+                         onClick={handleRegenerateNames}
+                         disabled={!currentTheme || !currentPreset || images.length === 0 || isProcessing}
+                         className="flex items-center"
+                       >
+                         <RotateCw className="w-4 h-4 mr-2" />
+                         Regenerate
+                       </Button>
+                     </div>
+                     {/* Info message about destination settings - only show if user selected a folder */}
+                     {selectedDirectory && (
+                       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex items-start gap-3 flex-shrink-0">
+                         <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                         <div className="flex-1 min-w-0">
+                           <p className="text-sm text-blue-800 dark:text-blue-200">
+                             Renamed files will be saved to a subfolder. To change the destination or folder name, go to{' '}
+                             <Button
+                               variant="ghost"
+                               size="sm"
+                               onClick={() => navigate('/settings?tab=general')}
+                               className="inline-flex items-center gap-1 text-blue-800 dark:text-blue-200 hover:text-blue-900 dark:hover:text-blue-100 p-0 h-auto font-medium underline"
+                             >
+                               Settings
+                               <Settings className="w-4 h-4" />
+                             </Button>
+                             .
+                           </p>
+                         </div>
+                       </div>
+                     )}
+                     <div className="flex-1 min-h-0 overflow-y-auto">
+                       <ImageGrid />
+                     </div>
+                     {errors.length > 0 && (
+                       <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex-shrink-0">
+                         <div className="space-y-2">
+                           {errors.map((err, index) => (
+                             <p key={index} className="text-sm text-red-700 dark:text-red-300">
+                               {err.error}
+                             </p>
+                           ))}
+                         </div>
+                       </div>
+                     )}
+                     {isProcessing && (
+                       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex-shrink-0">
+                         <div className="flex items-center justify-between mb-2">
+                           <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Processing...</span>
+                           <span className="text-sm text-gray-600 dark:text-gray-400">
+                             {images.length} files
+                           </span>
+                         </div>
+                         <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                           <div
+                             className="bg-blue-600 dark:bg-blue-500 h-2 rounded-full transition-all"
+                             style={{ width: totalFiles > 0 ? `${(progress / totalFiles) * 100}%` : '0%' }}
+                           />
+                         </div>
+                       </div>
+                     )}
+                   </div>
+                     )}
+
+                              {currentStep === 5 && renameResult && (
+                  <div className="space-y-4 flex flex-col min-w-0 min-h-0 flex-1">
+                    <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100 flex-shrink-0">Rename complete</h2>
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                        {renameResult.errorCount === 0 ? (
+                          <div className="text-center py-8">
+                            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                            <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                              Successfully renamed {renameResult.successCount} file{renameResult.successCount !== 1 ? 's' : ''}
+                            </h3>
+                            <p className="text-gray-600 dark:text-gray-400">
+                              All files have been renamed and moved to the destination folder.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="text-center py-4">
+                              {renameResult.successCount > 0 && (
+                                <div className="mb-4">
+                                  <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-2" />
+                                  <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                                    Successfully renamed {renameResult.successCount} file{renameResult.successCount !== 1 ? 's' : ''}
+                                  </p>
+                                </div>
+                              )}
+                              {renameResult.errorCount > 0 && (
+                                <div>
+                                  <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-2" />
+                                  <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                                    Failed to rename {renameResult.errorCount} file{renameResult.errorCount !== 1 ? 's' : ''}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                            {errors.length > 0 && (
+                              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                                <div className="space-y-2">
+                                  {errors.map((err, index) => (
+                                    <p key={index} className="text-sm text-red-700 dark:text-red-300">
+                                      {err.error}
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                      )}
+                </div>
+
+            {/* Bottom Navigation */}
+            <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between flex-shrink-0 mt-auto">
+              <div className="flex-1">
+                {currentStep > 1 && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentStep(currentStep - 1)}
+                    className="flex items-center"
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-1" />
+                    Previous
+                  </Button>
+                )}
+                                        </div>
+              <div className="flex-1 text-center">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  Step {currentStep} of {STEPS.length}
+                                          </span>
+                                        </div>
+              <div className="flex-1 flex justify-end">
+                {currentStep === 1 && (
+                  <Button
+                    onClick={async () => {
+                      if (filePickerRef.current && selectedImageCount > 0) {
+                        setIsProcessingImages(true);
+                        try {
+                          await filePickerRef.current.handleConfirmSelection();
+                          // Move to step 2 (Select Theme) after confirming images
+                          setCurrentStep(2);
+                        } finally {
+                          setIsProcessingImages(false);
+                        }
+                      }
+                    }}
+                    disabled={selectedImageCount === 0 || isProcessingImages || (filePickerRef.current?.isLoading ?? false)}
+                  >
+                    {isProcessingImages || filePickerRef.current?.isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : selectedImageCount > 0 ? (
+                      <>
+                        Continue with {selectedImageCount} image{selectedImageCount !== 1 ? 's' : ''}
+                        <ChevronRight className="w-4 h-4 ml-2" />
+                      </>
+                    ) : (
+                      <>
+                        Next
+                        <ChevronRight className="w-4 h-4 ml-2" />
+                      </>
+                    )}
+                  </Button>
+                )}
+                {currentStep === 2 && (
+                  <Button
+                    onClick={() => setCurrentStep(3)}
+                    disabled={!canProceedToStep3}
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                )}
+                {currentStep === 3 && (
+                  <Button
+                    onClick={() => setCurrentStep(4)}
+                    disabled={!canProceedToStep4}
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                )}
+                {currentStep === 4 && (
+                  <Button
+                    onClick={handleRenameFiles}
+                    disabled={!currentTheme || !currentPreset || images.length === 0 || isProcessing}
+                    className="flex items-center"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        Rename {images.length} file{images.length !== 1 ? 's' : ''}
+                      </>
+                    )}
+                  </Button>
+                )}
+                {currentStep === 5 && renameResult && (
+                  <Button
+                    onClick={() => {
+                      setRenameResult(null);
+                      clearErrors();
+                      // Don't clear images - let user keep them if they want to start over
+                      setCurrentStep(1);
+                    }}
+                  >
+                    Start over
+                  </Button>
+                )}
+                </div>
+              </div>
+        </div>
+        </div>
+      </div>
     </div>
   );
 }
-
