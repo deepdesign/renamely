@@ -2,22 +2,27 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/podmate-brandmark-16px.png" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/podmate-brandmark-32px.png" />
-    <link rel="icon" type="image/png" sizes="48x48" href="/podmate-brandmark-48px.png" />
-    <link rel="icon" type="image/png" sizes="64x64" href="/podmate-brandmark-64px.png" />
-    <link rel="icon" type="image/png" sizes="128x128" href="/podmate-brandmark-128px.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/podmate-brandmark-192px.png" />
-    <link rel="apple-touch-icon" sizes="192x192" href="/podmate-brandmark-192px.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/renamely-brandmark-16px.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/renamely-brandmark-32px.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/renamely-brandmark-48px.png" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/renamely-brandmark-64px.png" />
+    <link rel="icon" type="image/png" sizes="128x128" href="/renamely-brandmark-128px.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/renamely-brandmark-192px.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/renamely-brandmark-192px.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Renamely - Image Renamer</title>
+    <title>Renamely - Creative bulk image renaming</title>
     <script>
-      // On page load or when changing themes, best to add inline in `head` to avoid FOUC
-      if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
+      // Initialize theme before any content renders to prevent FOUC
+      (function() {
+        const savedTheme = localStorage.getItem('color-theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
     </script>
   </head>
   <body>

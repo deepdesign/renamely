@@ -11,12 +11,12 @@ type StepperProps = {
   isCurrentStepComplete?: boolean;
 };
 
-export default function Stepper({ steps, currentStep, onStepClick, isCurrentStepComplete = false }: StepperProps) {
+export default function Stepper({ steps, currentStep, onStepClick, isCurrentStepComplete }: StepperProps) {
   return (
     <ol className="space-y-4 w-full">
       {steps.map((step) => {
         const isCurrent = step.id === currentStep;
-        const isComplete = step.id < currentStep;
+        const isComplete = step.id < currentStep || (step.id === currentStep && isCurrentStepComplete);
         const isUpcoming = step.id > currentStep;
 
         return (
@@ -31,23 +31,26 @@ export default function Stepper({ steps, currentStep, onStepClick, isCurrentStep
               disabled={isUpcoming}
               className={`w-full p-4 rounded-lg text-left transition-colors ${
                 isCurrent
-                  ? 'text-blue-700 bg-blue-100 border border-blue-300 dark:bg-gray-800 dark:border-blue-800 dark:text-blue-400'
+                  ? 'text-blue-700 bg-blue-50 border border-blue-300 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400'
                   : isComplete
-                  ? 'text-green-700 border border-green-300 bg-green-50 dark:bg-gray-800 dark:border-green-800 dark:text-green-400'
+                  ? 'text-green-700 border border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400'
                   : 'text-gray-900 bg-gray-100 border border-gray-300 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400'
-              } ${isUpcoming ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:shadow-md'}`}
-              role="alert"
+              } ${isUpcoming ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400'}`}
               aria-current={isCurrent ? 'step' : undefined}
               aria-label={`Step ${step.id}: ${step.name}${isComplete ? ' (completed)' : isCurrent ? ' (current)' : ' (upcoming)'}`}
             >
               <div className="flex items-center justify-between">
-                <span className="sr-only">{step.name}</span>
-                <h3 className="font-medium">{step.id}. {step.name}</h3>
+                <div className="flex-1">
+                  <h3 className="font-medium">{step.id}. {step.name}</h3>
+                  {step.description && (
+                    <p className="text-sm mt-1 text-gray-600 dark:text-gray-400">{step.description}</p>
+                  )}
+                </div>
                 {(isComplete || isCurrent) && (
                   <div className="flex items-center justify-end flex-shrink-0 ml-2">
                     {isComplete ? (
                       <svg
-                        className="w-4 h-4"
+                        className="w-5 h-5 text-green-600 dark:text-green-400"
                         aria-hidden="true"
                         xmlns="http://www.w3.org/2000/svg"
                         fill="none"
@@ -63,7 +66,7 @@ export default function Stepper({ steps, currentStep, onStepClick, isCurrentStep
                       </svg>
                     ) : isCurrent ? (
                       <svg
-                        className="rtl:rotate-180 w-4 h-4"
+                        className="w-5 h-5 text-blue-600 dark:text-blue-400 rtl:rotate-180"
                         aria-hidden="true"
                         xmlns="http://www.w3.org/2000/svg"
                         fill="none"
@@ -81,9 +84,6 @@ export default function Stepper({ steps, currentStep, onStepClick, isCurrentStep
                   </div>
                 )}
               </div>
-              {step.description && (
-                <p className="text-sm mt-1 text-gray-600 dark:text-gray-400">{step.description}</p>
-              )}
             </button>
           </li>
         );

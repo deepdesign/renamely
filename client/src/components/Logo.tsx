@@ -40,8 +40,8 @@ export default function Logo() {
 
   return (
     <img
-      src={isDark ? '/podmate-horizontal-dark.svg' : '/podmate-horizontal-light.svg'}
-      alt="Podmate"
+      src={isDark ? '/renamely-dark.svg' : '/renamely-light.svg'}
+      alt="Renamely - creative bulk image renaming"
       className="h-8 w-auto"
     />
   );

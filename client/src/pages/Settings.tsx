@@ -23,8 +23,6 @@ export default function Settings() {
     setPresets,
     wordBanks,
     setWordBanks,
-    currentPreset,
-    setCurrentPreset,
   } = useAppStore();
 
   const [searchParams, setSearchParams] = useSearchParams();

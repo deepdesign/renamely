@@ -1,11 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { FolderOpen, Loader2, FileImage, Check, ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useCallback, useEffect, useState, forwardRef } from 'react';
+import { FolderOpen, Loader2, FileImage, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from './ui/Button';
 import { selectDirectory, selectImageFiles, scanDirectory, createThumbnailUrl } from '../features/files/fs-api';
 import { useAppStore } from '../features/store/slices';
 import type { ImageFile } from '../features/store/slices';
-import { generateName, registerName } from '../features/generation/engine';
-import { db } from '../features/store/db';
 
 interface ScannedImage {
   id: string;
@@ -30,20 +28,14 @@ interface FilePickerProps {
   onSelectionChange?: (selectedCount: number, scannedCount: number) => void;
 }
 
-export const FilePicker = React.forwardRef<FilePickerRef, FilePickerProps>(({ onSelectionChange }, ref) => {
+export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelectionChange }, ref) => {
   const {
     setSelectedDirectory,
     setImages,
-    currentPreset,
-    currentTheme,
-    wordBanks,
-    sessionUsedNames,
-    addUsedName,
-    settings,
   } = useAppStore();
 
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [scannedImages, setScannedImages] = useState<ScannedImage[]>([]);
   const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
   const [selectedDirectoryHandle, setSelectedDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);

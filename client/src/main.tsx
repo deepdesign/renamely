@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import App from './App';
+import ErrorBoundary from './components/ErrorBoundary';
 import './styles/index.css';
 
 // Initialize theme before rendering
@@ -27,13 +28,14 @@ const router = createBrowserRouter([
 ], {
   future: {
     v7_relativeSplatPath: true,
-    v7_startTransition: true,
   },
 });
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <ErrorBoundary>
+      <RouterProvider router={router} />
+    </ErrorBoundary>
   </React.StrictMode>,
 );
 

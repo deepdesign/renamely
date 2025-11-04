@@ -121,7 +121,7 @@ type AppStore = AppState & AppActions;
 
 export const useAppStore = create<AppStore>()(
   devtools(
-      (set, get) => {
+      (set) => {
         // Initialize dark mode from localStorage
         const savedTheme = localStorage.getItem('color-theme');
         const prefersDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;

@@ -18,7 +18,7 @@ export default function DarkModeToggle() {
       document.documentElement.classList.remove('dark');
       localStorage.setItem('color-theme', 'light');
     }
-  }, []);
+  }, [isDarkMode]);
 
   const handleToggle = () => {
     const newMode = !isDarkMode;
@@ -38,8 +38,9 @@ export default function DarkModeToggle() {
     <button
       type="button"
       onClick={handleToggle}
-      className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 rounded-lg text-sm p-2.5"
+      className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:focus:ring-gray-700 rounded-lg text-sm p-2.5 transition-colors"
       aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
     >
       {isDarkMode ? (
         <svg
@@ -47,6 +48,7 @@ export default function DarkModeToggle() {
           fill="currentColor"
           viewBox="0 0 20 20"
           xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
         >
           <path
             fillRule="evenodd"
@@ -60,6 +62,7 @@ export default function DarkModeToggle() {
           fill="currentColor"
           viewBox="0 0 20 20"
           xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
         >
           <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
         </svg>

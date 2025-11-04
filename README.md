@@ -1,6 +1,10 @@
+<div align="center">
+  <img src="client/public/renamely-light.svg" alt="Renamely - creative bulk image renaming" width="400"/>
+</div>
+
 # Renamely
 
-A modern web application for batch-renaming image files with intelligent name generation using themed word banks and configurable templates.
+**Creative bulk image renaming** - A modern web application for batch-renaming image files with intelligent name generation using themed word banks and configurable templates.
 
 ## Features
 
@@ -48,6 +52,11 @@ A modern web application for batch-renaming image files with intelligent name ge
 3. Start the development server:
    ```bash
    npm run dev
+   ```
+   
+   Or use the provided batch file (Windows):
+   ```bash
+   start.bat
    ```
 
 4. Open the app in a Chromium browser at `http://localhost:5173`

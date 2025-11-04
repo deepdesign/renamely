@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../features/store/slices';
 import { FilePicker, type FilePickerRef } from '../components/FilePicker';
 import { ImageGrid } from '../components/ImageGrid';
 import Stepper from '../components/Stepper';
 import { Button } from '../components/ui/Button';
-import { ChevronRight, ChevronLeft, Loader2, Check, Plus, RotateCw, Pencil, CheckCircle, AlertCircle, Settings, Info } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Loader2, Check, Plus, RotateCw, CheckCircle, AlertCircle, Settings, Info } from 'lucide-react';
 import { initializeDB, db } from '../features/store/db';
 import { loadDefaultWordBanks } from '../features/generation/wordBanks';
 import { loadDefaultThemes, loadDefaultPresets } from '../features/generation/themes';
@@ -256,6 +256,7 @@ export default function Home() {
     }
   }, [currentStep]);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
   const filePickerRef = useRef<FilePickerRef>(null);
   const [selectedImageCount, setSelectedImageCount] = useState(0);
   const [isProcessingImages, setIsProcessingImages] = useState(false);
@@ -298,8 +299,11 @@ export default function Home() {
         }
         
         setIsInitialized(true);
-        } catch (err) {
+      } catch (err) {
         console.error('Initialization error:', err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        setInitError(`Failed to initialize: ${errorMessage}. Please check the browser console for more details.`);
+        setIsInitialized(true); // Still allow app to render so user can see the error
       }
     }
     
@@ -388,7 +392,7 @@ export default function Home() {
     
         const maxLength = settings?.maxFilenameLength || 255;
         // Generate names sequentially to ensure uniqueness and avoid adjective/noun repetition
-        const updatedImages: ImageFile[] = [];
+        const updatedImages: typeof images = [];
         const currentUsedNames = new Set(sessionUsedNames);
         const currentUsedAdjectives = new Set<string>(); // Track adjectives used in this batch
         const currentUsedNouns = new Set<string>(); // Track nouns used in this batch
@@ -541,7 +545,7 @@ export default function Home() {
         }
 
         // Generate new names for unlocked images only - process sequentially to ensure unique names and avoid adjective/noun repetition
-        const updatedImages: ImageFile[] = [];
+        const updatedImages: typeof images = [];
         const currentUsedNames = new Set(sessionUsedNames);
         const currentUsedAdjectives = new Set<string>(); // Track adjectives used in this regeneration
         const currentUsedNouns = new Set<string>(); // Track nouns used in this regeneration
@@ -830,32 +834,43 @@ export default function Home() {
   const canProceedToStep5 = images.length > 0;
 
   if (!isInitialized) {
-            return (
+    return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600 dark:text-gray-400">Initializing...</p>
-                </div>
-              </div>
-            );
+        </div>
+      </div>
+    );
+  }
+
+  if (initError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen p-4">
+        <div className="max-w-2xl w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+          <h1 className="text-2xl font-bold text-red-600 dark:text-red-400 mb-4">
+            Initialization Error
+          </h1>
+          <p className="text-gray-700 dark:text-gray-300 mb-4">
+            {initError}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          >
+            Reload Page
+          </button>
+        </div>
+      </div>
+    );
   }
 
             return (
     <div className="flex flex-col h-full min-h-0 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-shrink-0">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Renamely</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Batch rename images with configurable templates
-                      </p>
-                    </div>
-      </div>
-
       {/* Main Layout: Stepper on left, Content on right */}
-      <div className="flex gap-6 flex-1 min-h-0">
-        {/* Left Sidebar - Stepper */}
-        <div className="w-80 flex-shrink-0">
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 flex-1 min-h-0">
+        {/* Left Sidebar - Stepper (hidden on mobile, shown on lg+) */}
+        <div className="hidden lg:block w-64 xl:w-80 flex-shrink-0">
           <Stepper
             steps={STEPS}
             currentStep={currentStep}
@@ -866,8 +881,28 @@ export default function Home() {
               (currentStep === 3 && canProceedToStep4) ||
               (currentStep === 4 && canProceedToStep5)
             }
-                    />
-                  </div>
+          />
+        </div>
+
+        {/* Mobile Step Indicator (shown only on mobile) */}
+        <div className="lg:hidden mb-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                Step {currentStep} of {STEPS.length}
+              </span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {STEPS[currentStep - 1]?.name}
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+              <div 
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300 dark:bg-blue-500"
+                style={{ width: `${(currentStep / STEPS.length) * 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
 
         {/* Right Side - Main Content */}
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">

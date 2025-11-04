@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { FixedSizeList } from 'react-window';
 import { useAppStore } from '../features/store/slices';
 import type { ImageFile } from '../features/store/slices';
@@ -12,7 +12,7 @@ interface ImageGridProps {
   onRename?: () => void;
 }
 
-export function ImageGrid({ onRename }: ImageGridProps) {
+export function ImageGrid({}: ImageGridProps) {
   const {
     images,
     updateImageName,
