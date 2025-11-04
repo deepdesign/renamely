@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="client/public/renamely-light.svg" alt="Renamely - creative bulk image renaming" width="400"/>
+  <img src="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-light.svg" alt="Renamely - creative bulk image renaming" width="400"/>
 </div>
 
 # Renamely
