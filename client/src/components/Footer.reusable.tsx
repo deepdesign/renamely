@@ -137,7 +137,7 @@ export default function Footer({
                       <img
                         src={isDark ? project.logoDark : project.logoLight}
                         alt={project.name}
-                        className="h-[40px] w-auto opacity-70 hover:opacity-100 transition-opacity"
+                        className="h-[40px] w-auto opacity-100 hover:opacity-70 transition-opacity"
                       />
                     </a>
                   </li>
@@ -163,7 +163,7 @@ export default function Footer({
                   <img
                     src={isDark ? '/_other logos/jc-logo-dark.svg' : '/_other logos/jc-logo-light.svg'}
                     alt="JC"
-                    className="h-[40px] w-auto opacity-70 hover:opacity-100 transition-opacity"
+                    className="h-[40px] w-auto opacity-100 hover:opacity-70 transition-opacity"
                   />
                 </a>
               </li>
@@ -178,7 +178,7 @@ export default function Footer({
                   <img
                     src={isDark ? '/_other logos/github-mark-dark.svg' : '/_other logos/github-mark-light.svg'}
                     alt="GitHub"
-                    className="h-[40px] w-auto opacity-70 hover:opacity-100 transition-opacity"
+                    className="h-[40px] w-auto opacity-100 hover:opacity-70 transition-opacity"
                   />
                 </a>
               </li>
