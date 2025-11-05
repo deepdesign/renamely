@@ -12,7 +12,7 @@
 ---
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-screenshot-01.png" alt="Renamely Screenshot" width="100%"/>
+  <img src="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-screenshot-01.png" alt="Renamely Screenshot" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);"/>
 </div>
 
 ---
