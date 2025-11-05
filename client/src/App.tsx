@@ -3,7 +3,7 @@ import Home from './pages/Home';
 import Settings from './pages/Settings';
 import DarkModeToggle from './components/DarkModeToggle';
 import Logo from './components/Logo';
-import Footer from './components/Footer.reusable';
+import Footer from './components/Footer';
 import { Settings as SettingsIcon } from 'lucide-react';
 
 function App() {
