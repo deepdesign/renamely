@@ -572,6 +572,8 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
       <div
         ref={dropZoneRef}
         className={`flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-lg transition-all cursor-pointer ${
+          scannedImages.length === 0 ? 'flex-1 min-h-0' : ''
+        } ${
           isDragOver
             ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400'
             : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-gray-50 dark:hover:bg-gray-800/50'

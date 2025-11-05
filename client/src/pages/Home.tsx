@@ -866,7 +866,7 @@ export default function Home() {
   }
 
             return (
-    <div className="flex flex-col h-full min-h-0 space-y-6">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Main Layout: Stepper on left, Content on right */}
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 flex-1 min-h-0">
         {/* Left Sidebar - Stepper (hidden on mobile, shown on lg+) */}
@@ -906,7 +906,15 @@ export default function Home() {
 
         {/* Right Side - Main Content */}
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-                      <div className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col min-h-[472px] max-h-[calc(100vh-12rem)] overflow-hidden`}>
+                      <div className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col w-full ${
+                        currentStep === 1 
+                          ? 'self-start min-h-[472px]' 
+                          : currentStep === 4
+                          ? 'flex-1 min-h-[472px]'
+                          : currentStep === 5
+                          ? 'self-start min-h-[472px]'
+                          : 'self-start'
+                      } max-h-[max(472px,calc(100vh-28rem))] overflow-hidden`}>
               {/* Content Area */}
               <div className={`p-6 flex flex-col ${
                 currentStep === 1 ? 'flex-1 min-h-0' : currentStep === 2 || currentStep === 3 || currentStep === 4 ? 'flex-1 min-h-0' : 'flex-1 min-h-0'
@@ -1145,7 +1153,7 @@ export default function Home() {
                          </div>
                        </div>
                      )}
-                     <div className="flex-1 min-h-0 overflow-y-auto">
+                     <div className="flex-1 min-h-0 flex flex-col">
                        <ImageGrid />
                      </div>
                      {errors.length > 0 && (

@@ -16,7 +16,9 @@
 - **Batch Rename**: Rename multiple images at once with destination folder options
 - **Uniqueness Guarantee**: Zero duplicate names across sessions
 - **Dark Mode**: Built-in dark mode support
-- **Responsive Design**: Works seamlessly on desktop browsers
+- **Responsive Design**: Works seamlessly on desktop browsers with adaptive layouts
+- **Smart Card Sizing**: Cards adapt to content while maintaining consistent minimum heights
+- **Footer Integration**: Discover related projects and contact information
 
 ## Tech Stack
 
