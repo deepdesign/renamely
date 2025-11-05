@@ -1,92 +1,154 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-light.svg" alt="Renamely - creative bulk image renaming" width="400"/>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-dark.svg">
+    <img src="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-light.svg" alt="Renamely" width="400"/>
+  </picture>
+  
+  <h3>Creative bulk image renaming</h3>
+  
+  <p>Intelligent batch renaming with themed word banks and customizable templates</p>
 </div>
 
-# Renamely
+---
 
-**Creative bulk image renaming** - A modern web application for batch-renaming image files with intelligent name generation using themed word banks and configurable templates.
+<div align="center">
+  <img src="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-screenshot-01.png" alt="Renamely Screenshot" width="100%"/>
+</div>
 
-## Features
+---
 
-- **Intelligent Name Generation**: Create unique, meaningful names using adjective-noun patterns
-- **Theme-Based Word Banks**: Choose from Artistic, Nature, Urban, Adventure, Scientific, or All themes
-- **Customizable Templates**: Configure delimiter, case style, and pattern (e.g., `{adjective}-{adjective}-{noun}`)
-- **Folder & File Support**: Drag and drop folders or individual images
-- **Inline Editing**: Edit any generated name before renaming
-- **Batch Rename**: Rename multiple images at once with destination folder options
-- **Uniqueness Guarantee**: Zero duplicate names across sessions
-- **Dark Mode**: Built-in dark mode support
-- **Responsive Design**: Works seamlessly on desktop browsers with adaptive layouts
-- **Smart Card Sizing**: Cards adapt to content while maintaining consistent minimum heights
-- **Footer Integration**: Discover related projects and contact information
+## ✨ Features
 
-## Tech Stack
+### 🎯 Intelligent Name Generation
+Create unique, meaningful names using adjective-noun patterns with zero duplicates across sessions.
 
-- **Frontend**: React + TypeScript + Vite
-- **Styling**: Tailwind CSS
-- **State Management**: Zustand
-- **Database**: Dexie (IndexedDB) for local storage
-- **File Access**: Browser File System Access API
-- **Routing**: React Router v6
+### 🎨 Theme-Based Word Banks
+Choose from carefully curated themes:
+- **Artistic** - Creative and expressive names
+- **Nature** - Natural and organic naming
+- **Urban** - Modern city-inspired names
+- **Adventure** - Bold and adventurous choices
+- **Scientific** - Technical and precise naming
+- **Universal** - All themes combined
 
-## Getting Started
+### 🛠️ Customizable Templates
+Configure your naming pattern with:
+- Custom delimiters (dash, underscore, space, etc.)
+- Case styles (Title Case, Sentence case, lowercase, UPPERCASE)
+- Flexible patterns: `{adjective}-{adjective}-{noun}`, `{prefix}-{noun}-{suffix}`, and more
+- Optional date stamps and counters
+
+### 📁 Seamless File Management
+- **Drag & Drop** - Drop folders or individual files
+- **File Browser** - Browse and select images
+- **Inline Editing** - Edit any generated name before renaming
+- **Batch Processing** - Rename multiple images at once
+- **Destination Options** - Choose where renamed files go
+
+### 🎨 Modern Design
+- **Dark Mode** - Built-in dark mode with smooth transitions
+- **Responsive Layout** - Adapts beautifully to any screen size
+- **Smart Card Sizing** - Content-aware layouts that maintain consistency
+- **Professional Footer** - Discover related projects and contact information
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
-- npm or yarn
-- A Chromium-based browser (Chrome, Edge, etc.) for File System Access API support
+- **Node.js** v18 or higher
+- **npm** or **yarn**
+- **Chromium-based browser** (Chrome, Edge, etc.) for File System Access API support
 
 ### Installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/deepdesign/renamely.git
-   cd renamely
-   ```
+```bash
+# Clone the repository
+git clone https://github.com/deepdesign/renamely.git
+cd renamely
 
-2. Install dependencies:
-   ```bash
-   cd client
-   npm install
-   ```
+# Install dependencies
+cd client
+npm install
 
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-   
-   Or use the provided batch file (Windows):
-   ```bash
-   start.bat
-   ```
-
-4. Open the app in a Chromium browser at `http://localhost:5173`
-
-## Usage
-
-1. **Select Images**: Drag and drop a folder or individual image files, or click to browse
-2. **Choose Theme**: Select a theme that matches your image style (Artistic, Nature, Urban, etc.)
-3. **Select Template**: Choose a naming template or create a custom one
-4. **Review & Edit**: Preview generated names and edit any as needed
-5. **Rename**: Choose a destination folder and rename all files
-
-## Project Structure
-
-```
-client/
-  src/
-    components/          # React components
-      ui/               # Reusable UI components (Button, etc.)
-    features/
-      files/            # File System Access API utilities
-      generation/       # Name generation engine and word banks
-      store/            # Zustand store and Dexie database
-    pages/              # Main page components
-    lib/                # Utility functions
+# Start development server
+npm run dev
 ```
 
-## Development
+Or use the provided batch file (Windows):
+```bash
+start.bat
+```
+
+Open the app in your browser at `http://localhost:5173`
+
+---
+
+## 📖 Usage
+
+### Step 1: Select Images
+Drag and drop a folder or individual image files, or click to browse and select images.
+
+### Step 2: Choose Theme
+Select a theme that matches your image style. Each theme has carefully curated word banks to generate appropriate names.
+
+### Step 3: Select Template
+Choose from pre-built templates or create a custom naming pattern that fits your needs.
+
+### Step 4: Review & Edit
+Preview all generated names in an easy-to-use table. Edit any name inline before renaming.
+
+### Step 5: Rename
+Choose your destination folder and execute the batch rename. All files are processed with progress tracking.
+
+---
+
+## 🛠️ Tech Stack
+
+| Category | Technology |
+|----------|-----------|
+| **Frontend Framework** | React 18 + TypeScript |
+| **Build Tool** | Vite |
+| **Styling** | Tailwind CSS |
+| **State Management** | Zustand |
+| **Database** | Dexie (IndexedDB) |
+| **File API** | Browser File System Access API |
+| **Routing** | React Router v6 |
+| **UI Components** | Custom components with Lucide icons |
+
+---
+
+## 📁 Project Structure
+
+```
+renamely/
+├── client/
+│   ├── public/
+│   │   └── _other logos/          # Project logos and assets
+│   └── src/
+│       ├── components/             # React components
+│       │   ├── ui/                 # Reusable UI components
+│       │   └── Footer.reusable.tsx # Reusable footer component
+│       ├── features/
+│       │   ├── files/              # File System Access API utilities
+│       │   ├── generation/         # Name generation engine
+│       │   │   ├── engine.ts       # Core generation logic
+│       │   │   ├── wordBanks.ts    # Word bank definitions
+│       │   │   └── themes.ts       # Theme and preset management
+│       │   └── store/              # State management
+│       │       ├── db.ts           # Dexie database schema
+│       │       └── slices.ts       # Zustand store slices
+│       ├── pages/                  # Page components
+│       │   ├── Home.tsx            # Main application page
+│       │   └── Settings.tsx        # Settings page
+│       └── lib/                    # Utility functions
+└── README.md
+```
+
+---
+
+## 🔧 Development
 
 ### Build for Production
 
@@ -104,13 +166,29 @@ cd client
 npm run dev
 ```
 
-## Notes
+The development server will start with hot module replacement enabled.
 
-- The app uses the File System Access API, which is only available in Chromium-based browsers (Chrome, Edge, etc.)
-- All processing is done locally - no data is sent to external servers
-- Word banks, templates, and settings are stored in the browser's IndexedDB
-- Generated names are tracked to ensure uniqueness across sessions
+---
 
-## License
+## 📝 Notes
+
+- **Browser Compatibility**: The app uses the File System Access API, which is only available in Chromium-based browsers (Chrome, Edge, Brave, etc.)
+- **Privacy First**: All processing is done locally - no data is sent to external servers
+- **Local Storage**: Word banks, templates, and settings are stored in the browser's IndexedDB
+- **Uniqueness Tracking**: Generated names are tracked to ensure zero duplicates across sessions
+
+---
+
+## 📄 License
 
 Private - All Rights Reserved
+
+---
+
+<div align="center">
+  <p>Made with ❤️ by <a href="https://jamescutts.me/">Deep Design Pty Ltd</a></p>
+  <p>
+    <a href="https://github.com/deepdesign/renamely">GitHub</a> •
+    <a href="https://github.com/deepdesign">More Projects</a>
+  </p>
+</div>
