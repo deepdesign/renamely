@@ -1,7 +1,7 @@
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-dark.svg">
-    <img src="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-light.svg" alt="Renamely" width="400"/>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-logo-dark.svg">
+    <img src="https://raw.githubusercontent.com/deepdesign/renamely/main/client/public/renamely-logo-light.svg" alt="Renamely" width="400"/>
   </picture>
   
   <h3>Creative bulk image renaming</h3>

@@ -40,7 +40,7 @@ export default function Logo() {
 
   return (
     <img
-      src={isDark ? '/renamely-dark.svg' : '/renamely-light.svg'}
+      src={isDark ? '/renamely-logo-dark.svg' : '/renamely-logo-light.svg'}
       alt="Renamely - creative bulk image renaming"
       className="h-8 w-auto"
     />
