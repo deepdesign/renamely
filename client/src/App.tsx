@@ -3,7 +3,7 @@ import Home from './pages/Home';
 import Settings from './pages/Settings';
 import DarkModeToggle from './components/DarkModeToggle';
 import Logo from './components/Logo';
-import Footer from './components/Footer';
+import Footer from './components/Footer.reusable';
 import { Settings as SettingsIcon } from 'lucide-react';
 
 function App() {
@@ -42,7 +42,10 @@ function App() {
         </Routes>
       </main>
       
-      <Footer />
+      <Footer 
+        logo={<Logo />}
+        strapline="Creative bulk image renaming"
+      />
     </div>
   );
 }
