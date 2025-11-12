@@ -306,14 +306,23 @@ export default function ColorOptions() {
                 </div>
               </div>
 
-              {/* CSS Gradient Code */}
+              {/* Gradient Classes */}
               <div className="mt-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                   Gradient Classes
                 </h3>
                 <div className="bg-gray-900 dark:bg-gray-950 rounded-lg p-4 overflow-x-auto">
                   <pre className="text-sm text-gray-100">
-{`bg-gradient-to-r from-[${colorOptions[selectedOption].gradient.from}] ${colorOptions[selectedOption].gradient.via ? `via-[${colorOptions[selectedOption].gradient.via}]` : ''} to-[${colorOptions[selectedOption].gradient.to}]`}
+{(() => {
+  const gradient = colorOptions[selectedOption].gradient;
+  const classParts = [
+    'bg-gradient-to-r',
+    'from-[' + gradient.from + ']',
+    gradient.via ? 'via-[' + gradient.via + ']' : null,
+    'to-[' + gradient.to + ']'
+  ].filter(Boolean) as string[];
+  return classParts.join(' ');
+})()}
                   </pre>
                 </div>
               </div>
