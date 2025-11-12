@@ -18,9 +18,10 @@
  * - logo: ReactNode - Your project logo component
  * - strapline: string - Description text for your project
  * - homeLink: string - Link for the logo (default: "/")
+ * - settingsLink: string | null - Link for settings (default: "/settings", set to null to hide)
  * - projects: Array of {name, url, logoDark, logoLight} - Project logos to display
  * - companyName: string - Company name for copyright (default: "Deep Design Pty Ltd")
- * - companyUrl: string - Company URL for copyright link (default: "https://jamescutts.me/")
+ * - companyUrl: string - Company URL for copyright link (default: "https://www.jamescutts.me/")
  */
 
 import { useEffect, useState, ReactNode } from 'react';
@@ -37,6 +38,7 @@ interface FooterProps {
   logo?: ReactNode;
   strapline?: string;
   homeLink?: string;
+  settingsLink?: string | null;
   projects?: Project[];
   companyName?: string;
   companyUrl?: string;
@@ -46,6 +48,7 @@ export default function Footer({
   logo,
   strapline = "Creative digital solutions",
   homeLink = "/",
+  settingsLink = "/settings",
   projects = [
     {
       name: "Renamely",
@@ -60,20 +63,26 @@ export default function Footer({
       logoLight: "/_other logos/podmate-circle-light.svg"
     },
     {
+      name: "Waxvalue",
+      url: "https://www.waxvalue.com/",
+      logoDark: "/_other logos/waxvalue-circle-dark.svg",
+      logoLight: "/_other logos/waxvalue-circle-light.svg"
+    },
+    {
       name: "Walljazzle",
       url: "https://walljazzle.com/",
       logoDark: "/_other logos/walljazzle-circle-dark.svg",
       logoLight: "/_other logos/walljazzle-circle-light.svg"
     },
     {
-      name: "Waxvalue",
-      url: "https://www.waxvalue.com/",
-      logoDark: "/_other logos/waxvalue-circle-dark.svg",
-      logoLight: "/_other logos/waxvalue-circle-light.svg"
+      name: "Bitlab",
+      url: "https://bitlab.jamescutts.me/",
+      logoDark: "/_other logos/bitlab-logo-circle-dark.svg",
+      logoLight: "/_other logos/bitlab-logo-circle-light.svg"
     }
   ],
   companyName = "Deep Design Pty Ltd",
-  companyUrl = "https://jamescutts.me/"
+  companyUrl = "https://www.jamescutts.me/"
 }: FooterProps) {
   const [isDark, setIsDark] = useState(false);
 
@@ -106,10 +115,9 @@ export default function Footer({
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8">
       <footer 
-        className={`w-full max-w-[1600px] mx-auto rounded-lg py-4 md:py-8 ${isDark ? '' : 'bg-white shadow-sm'}`}
-        style={isDark ? { backgroundColor: '#0f1521' } : undefined}
+        className="w-full max-w-[1600px] mx-auto border-t-2 border-gray-200 dark:border-gray-700 py-4 md:py-8"
       >
-        <div className="w-full px-6">
+        <div className="w-full">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
           {/* Logo and Strapline */}
           {logo && (
@@ -202,15 +210,27 @@ export default function Footer({
               href={companyUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:underline"
+              className="text-blue-600 dark:text-blue-400 hover:underline"
             >
               {companyName}
             </a>
             . All Rights Reserved.
           </span>
+          {settingsLink && (
+            <div className="flex mt-4 sm:justify-center sm:mt-0">
+              <ul className="flex flex-wrap items-center gap-4 text-sm font-medium text-gray-500 dark:text-gray-400">
+                <li>
+                  <Link to={settingsLink} className="hover:underline">
+                    Settings
+                  </Link>
+                </li>
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     </footer>
     </div>
   );
 }
+
