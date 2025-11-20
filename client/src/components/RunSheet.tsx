@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { ProductCreationResult } from '../lib/types';
 import { generateCSV, downloadCSV } from '../lib/validators';
 import { getProductStatus } from '../lib/api';
