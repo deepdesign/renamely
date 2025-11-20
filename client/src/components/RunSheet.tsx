@@ -574,26 +574,31 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                       <div className="space-y-3 text-xs">
                         {/* Action Buttons at top of expanded row */}
                         <div className="flex gap-2 pb-3 border-b border-gray-200 dark:border-gray-700">
-                          {typeof result.productId === 'string' && result.productId && (
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCheckStatus(index, false);
-                                }}
-                                disabled={checkingStatusIndex === index || autoChecking.has(index)}
-                                className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-4 py-2 text-center disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {checkingStatusIndex === index ? 'Checking...' : autoChecking.has(index) ? 'Auto-checking...' : 'Check Status'}
-                              </button>
-                              {autoChecking.has(index) && (
-                                <span className="text-xs text-gray-600 dark:text-gray-400 italic">
-                                  (Auto-checking every 3 min)
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          {(() => {
+                            if (result.productId) {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCheckStatus(index, false);
+                                    }}
+                                    disabled={checkingStatusIndex === index || autoChecking.has(index)}
+                                    className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-4 py-2 text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {checkingStatusIndex === index ? 'Checking...' : autoChecking.has(index) ? 'Auto-checking...' : 'Check Status'}
+                                  </button>
+                                  {autoChecking.has(index) && (
+                                    <span className="text-xs text-gray-600 dark:text-gray-400 italic">
+                                      (Auto-checking every 3 min)
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                           {result.status === 'error' && (
                             <button
                               type="button"
@@ -816,30 +821,35 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                             <span className="text-gray-500 dark:text-gray-400 ml-2">Not available</span>
                           )}
                         </div>
-                        {result.payloadSent !== undefined && result.payloadSent !== null && (
-                          <div key={`payload-${index}`}>
-                            <button
-                              type="button"
-                              onClick={() => toggleSection(`payload-${index}`)}
-                              className="flex items-center gap-2 text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                            >
-                              <svg 
-                                className={`w-4 h-4 transition-transform ${isSectionExpanded(`payload-${index}`) ? 'rotate-90' : ''}`}
-                                fill="none" 
-                                stroke="currentColor" 
-                                viewBox="0 0 24 24"
-                              >
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
-                              <strong>Payload Sent to Gelato:</strong>
-                            </button>
-                            {isSectionExpanded(`payload-${index}`) && (
-                              <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto">
-                                {JSON.stringify(result.payloadSent, null, 2)}
-                              </pre>
-                            )}
-                          </div>
-                        )}
+                        {(() => {
+                          if (result.payloadSent) {
+                            return (
+                              <div key={`payload-${index}`}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSection(`payload-${index}`)}
+                                  className="flex items-center gap-2 text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                                >
+                                  <svg 
+                                    className={`w-4 h-4 transition-transform ${isSectionExpanded(`payload-${index}`) ? 'rotate-90' : ''}`}
+                                    fill="none" 
+                                    stroke="currentColor" 
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                  <strong>Payload Sent to Gelato:</strong>
+                                </button>
+                                {isSectionExpanded(`payload-${index}`) && (
+                                  <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto">
+                                    {JSON.stringify(result.payloadSent, null, 2)}
+                                  </pre>
+                                )}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                         {result.responseReceived ? (
                           <div>
                             <button
