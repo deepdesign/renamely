@@ -593,7 +593,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                 </span>
                               )}
                             </div>
-                          )}
+                          ) : null}
                           {result.status === 'error' && (
                             <button
                               type="button"
@@ -863,7 +863,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                               </pre>
                             )}
                           </div>
-                        )}
+                        ) : null}
                         {result.errorDetails && (
                           <div>
                             <strong className="text-red-600 dark:text-red-400">Error Details:</strong>

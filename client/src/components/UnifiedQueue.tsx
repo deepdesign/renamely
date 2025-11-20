@@ -1215,7 +1215,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
                               <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Technical Details</h4>
                               
-                              {item.payloadSent && (
+                              {item.payloadSent ? (
                                 <details className="group">
                                   <summary className="flex items-center justify-between w-full p-3 text-sm font-medium text-left text-gray-900 bg-gray-100 border border-gray-200 rounded-t-lg cursor-pointer hover:bg-gray-200 dark:bg-gray-800 dark:border-gray-700 dark:text-white dark:hover:bg-gray-700 transition-colors">
                                     <span>Payload Sent to Gelato</span>
@@ -1259,7 +1259,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                 </details>
                               ) : null}
 
-                              {item.gelatoStatus && (
+                              {item.gelatoStatus ? (
                                 <details className="group">
                                   <summary className="flex items-center justify-between w-full p-3 text-sm font-medium text-left text-gray-900 bg-gray-100 border border-gray-200 rounded-t-lg cursor-pointer hover:bg-gray-200 dark:bg-gray-800 dark:border-gray-700 dark:text-white dark:hover:bg-gray-700 transition-colors">
                                     <span>Latest Status from Gelato API</span>

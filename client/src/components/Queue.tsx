@@ -131,114 +131,8 @@ export default function Queue({ template, images, selectedVariants, metadata, on
     }
   }, [needsUrlRefresh]);
 
-  // Auto-start processing when queue is ready
-  useEffect(() => {
-    if (queue.length > 0 && !processingRef.current && !isPaused) {
-      const firstPending = queue.find(q => q.status === 'pending');
-      if (firstPending) {
-        // Small delay to ensure state is set and tunnel URL is fetched
-        const timeoutId = setTimeout(() => {
-          if (!processingRef.current && !isPaused) {
-            processItem(firstPending.index);
-          }
-        }, 200);
-        
-        return () => clearTimeout(timeoutId);
-      }
-    }
-  }, [queue, isPaused, processItem]);
-
-  // Get tunnel URL on mount and periodically
-  useEffect(() => {
-    const fetchTunnelUrl = async () => {
-      try {
-        const response = await getTunnelUrl();
-        setTunnelUrl(response.publicBaseUrl);
-        // Check if tunnel URL is valid
-        if (response.publicBaseUrl && response.publicBaseUrl.startsWith('http')) {
-          setTunnelStatus('valid');
-        } else {
-          setTunnelStatus('invalid');
-        }
-      } catch (err) {
-        console.error('Failed to get tunnel URL:', err);
-        setTunnelStatus('invalid');
-      }
-    };
-
-    fetchTunnelUrl();
-    const interval = setInterval(fetchTunnelUrl, 30000); // Check every 30 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
-  // Check if URL needs regeneration
-  const needsUrlRefresh = useCallback((image: UploadedFile): boolean => {
-    // Cloud URLs don't need refresh
-    if (image.sourceType === 'dropbox' || image.sourceType === 'googledrive') {
-      return false;
-    }
-
-    // Check if publicUrl uses a different base URL than current tunnel
-    if (!image.publicUrl) {
-      return true; // No URL, needs refresh
-    }
-    
-    if (!tunnelUrl) {
-      // If we don't have tunnel URL yet, check if URL looks valid
-      // If it starts with http/https, assume it might be OK for now
-      // Otherwise, we'll need to wait for tunnel URL to be fetched
-      return !image.publicUrl.startsWith('http');
-    }
-
-    try {
-      const url = new URL(image.publicUrl);
-      const currentBase = new URL(tunnelUrl);
-      
-      // If hosts differ, URL needs refresh
-      if (url.host !== currentBase.host) {
-        return true;
-      }
-
-      // Check if token might be expired (simple heuristic - if URL is older than 1.5 hours)
-      // We regenerate if close to expiry to be safe
-      const expMatch = image.publicUrl.match(/[?&]e=(\d+)/);
-      if (expMatch) {
-        const expiry = parseInt(expMatch[1], 10);
-        const now = Math.floor(Date.now() / 1000);
-        const timeUntilExpiry = expiry - now;
-        // Regenerate if less than 30 minutes remaining
-        if (timeUntilExpiry < 30 * 60) {
-          return true;
-        }
-      }
-
-      return false;
-    } catch {
-      return true; // Invalid URL, needs refresh
-    }
-  }, [tunnelUrl]);
-
-  // Refresh URL for an image
-  const refreshImageUrl = useCallback(async (image: UploadedFile): Promise<UploadedFile> => {
-    if (!needsUrlRefresh(image)) {
-      return image; // No refresh needed
-    }
-
-    try {
-      const result = await regenerateFileUrl(image.fileId);
-      return {
-        ...image,
-        publicUrl: result.publicUrl,
-        thumbnailUrl: result.thumbnailUrl || image.thumbnailUrl,
-      };
-    } catch (err) {
-      console.error(`Failed to refresh URL for ${image.fileId}:`, err);
-      throw err;
-    }
-  }, [needsUrlRefresh]);
-
-  // Removed duplicate processItem - it's defined earlier
+  // Process a single queue item
+  const processItem = useCallback(async (itemIndex: number) => {
     if (processingRef.current || isPaused) {
       return;
     }
@@ -439,6 +333,47 @@ export default function Queue({ template, images, selectedVariants, metadata, on
       return prev;
     });
   }, [template, selectedVariants, metadata, needsUrlRefresh, refreshImageUrl, isPaused, onComplete]);
+
+  // Auto-start processing when queue is ready
+  useEffect(() => {
+    if (queue.length > 0 && !processingRef.current && !isPaused) {
+      const firstPending = queue.find(q => q.status === 'pending');
+      if (firstPending) {
+        // Small delay to ensure state is set and tunnel URL is fetched
+        const timeoutId = setTimeout(() => {
+          if (!processingRef.current && !isPaused) {
+            processItem(firstPending.index);
+          }
+        }, 200);
+        
+        return () => clearTimeout(timeoutId);
+      }
+    }
+  }, [queue, isPaused, processItem]);
+
+  // Get tunnel URL on mount and periodically
+  useEffect(() => {
+    const fetchTunnelUrl = async () => {
+      try {
+        const response = await getTunnelUrl();
+        setTunnelUrl(response.publicBaseUrl);
+        // Check if tunnel URL is valid
+        if (response.publicBaseUrl && response.publicBaseUrl.startsWith('http')) {
+          setTunnelStatus('valid');
+        } else {
+          setTunnelStatus('invalid');
+        }
+      } catch (err) {
+        console.error('Failed to get tunnel URL:', err);
+        setTunnelStatus('invalid');
+      }
+    };
+
+    fetchTunnelUrl();
+    const interval = setInterval(fetchTunnelUrl, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Start processing queue (duplicate - removing)
   const _startQueue = () => {
