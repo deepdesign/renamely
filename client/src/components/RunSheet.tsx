@@ -574,7 +574,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                       <div className="space-y-3 text-xs">
                         {/* Action Buttons at top of expanded row */}
                         <div className="flex gap-2 pb-3 border-b border-gray-200 dark:border-gray-700">
-                          {result.productId ? (
+                          {(result.productId ? (
                             <>
                             <div className="flex items-center gap-2">
                               <button
@@ -595,7 +595,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                               )}
                             </div>
                             </>
-                          ) : null}
+                          ) : null) as React.ReactNode}
                           {result.status === 'error' && (
                             <button
                               type="button"
@@ -818,7 +818,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                             <span className="text-gray-500 dark:text-gray-400 ml-2">Not available</span>
                           )}
                         </div>
-                        {result.payloadSent ? (
+                        {(result.payloadSent ? (
                           <div key={`payload-${index}`}>
                             <button
                               type="button"
@@ -841,7 +841,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                               </pre>
                             )}
                           </div>
-                        ) : null}
+                        ) : null) as React.ReactNode}
                         {result.responseReceived ? (
                           <div>
                             <button

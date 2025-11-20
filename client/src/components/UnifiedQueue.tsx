@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { regenerateFileUrl, getTunnelUrl, createFromTemplate, getProductStatus } from '../lib/api';
 import type { TemplateInfo, UploadedFile, CreateFromTemplateBody, VariantAssignment, PlaceholderAssignment } from '../lib/types';
 import { toHeadlineCase } from '../lib/utils';
@@ -1135,7 +1135,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                             })() as React.ReactNode}
 
                             {/* Image URL Preview */}
-                            {item.imageUrlSent ? (
+                            {(item.imageUrlSent ? (
                               <div className="mt-3 pb-3 border-b border-gray-200 dark:border-gray-700">
                                 <strong className="text-gray-900 dark:text-white">Image URL Sent:</strong>
                                 <div className="mt-2 space-y-2">
@@ -1180,7 +1180,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                   </div>
                                 </div>
                               </div>
-                            ) : null}
+                            ) : null) as React.ReactNode}
 
                             {/* Preview and Admin URLs */}
                             {item.gelatoStatus && (item.gelatoStatus.previewUrl || item.gelatoStatus.adminUrl) && (
