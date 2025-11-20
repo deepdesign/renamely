@@ -737,7 +737,7 @@ export default function Home() {
           const isRealFileHandle = image.fileHandle && !(image.fileHandle instanceof File) && 'getFile' in image.fileHandle;
           
           // If we have a file handle with move() support and no destination directory, rename in place
-          if (isRealFileHandle && !destinationDir && 'move' in image.fileHandle) {
+          if (isRealFileHandle && !destinationDir && image.fileHandle && 'move' in image.fileHandle) {
             await renameFile(image.fileHandle as FileSystemFileHandle, newName);
             newPath = image.path.replace(image.originalName, newName);
           } else if (destinationDir && image.fileHandle) {

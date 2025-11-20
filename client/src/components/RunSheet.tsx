@@ -575,6 +575,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                         {/* Action Buttons at top of expanded row */}
                         <div className="flex gap-2 pb-3 border-b border-gray-200 dark:border-gray-700">
                           {result.productId ? (
+                            <>
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
@@ -593,6 +594,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                 </span>
                               )}
                             </div>
+                            </>
                           ) : null}
                           {result.status === 'error' && (
                             <button
@@ -817,7 +819,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                           )}
                         </div>
                         {result.payloadSent ? (
-                          <div>
+                          <div key={`payload-${index}`}>
                             <button
                               type="button"
                               onClick={() => toggleSection(`payload-${index}`)}

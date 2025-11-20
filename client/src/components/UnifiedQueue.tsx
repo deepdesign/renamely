@@ -1132,7 +1132,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                   )}
                                 </div>
                               );
-                            })()}
+                            })() as React.ReactNode}
 
                             {/* Image URL Preview */}
                             {item.imageUrlSent ? (
