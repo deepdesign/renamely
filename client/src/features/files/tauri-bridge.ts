@@ -62,8 +62,8 @@ export async function scanDirectoryTauri(dirPath: string): Promise<TauriFileHand
           files.push({
             path: entry.path,
             name: entry.name || '',
-            size: entry.size || 0,
-            lastModified: new Date(entry.mtime || Date.now()).getTime(),
+            size: (entry as any).size || 0,
+            lastModified: new Date((entry as any).mtime || Date.now()).getTime(),
           });
         }
       }

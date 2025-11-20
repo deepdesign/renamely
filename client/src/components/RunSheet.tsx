@@ -19,7 +19,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
   const [expandedSections, setExpandedSections] = useState<Map<string, boolean>>(new Map());
   const [lastChecked, setLastChecked] = useState<Map<number, number>>(new Map()); // index -> timestamp
   const [autoChecking, setAutoChecking] = useState<Set<number>>(new Set()); // indices being auto-checked
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const toggleSection = (key: string) => {
     const newMap = new Map(expandedSections);
@@ -223,7 +223,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
     // 2. AND variants are populated (indicates images processed)
     const isReady = response.isReadyToPublish === true || (response.status !== 'created' && response.status !== undefined);
     const hasVariants = variantsCount > 0;
-    const hasImages = productImagesCount > 0;
+    const _hasImages = productImagesCount > 0;
     // Complete ONLY if ready AND has variants - this ensures variants are actually connected
     // Just having product images isn't enough - we need variants to be connected
     return isReady && hasVariants;
@@ -471,7 +471,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                           <>
                             <div className="flex-shrink-0">
                               <img
-                                src={image.thumbnailUrl || image.publicUrl || image.fileId}
+                                src={(image as any).thumbnailUrl || image.publicUrl || image.fileId}
                                 alt={image.originalName || image.fileId}
                                 className="h-12 w-12 object-cover rounded-md border border-gray-300 dark:border-gray-600"
                               />
@@ -574,7 +574,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                       <div className="space-y-3 text-xs">
                         {/* Action Buttons at top of expanded row */}
                         <div className="flex gap-2 pb-3 border-b border-gray-200 dark:border-gray-700">
-                          {result.productId && (
+                          {result.productId ? (
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
@@ -816,7 +816,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                             <span className="text-gray-500 dark:text-gray-400 ml-2">Not available</span>
                           )}
                         </div>
-                        {result.payloadSent && (
+                        {result.payloadSent ? (
                           <div>
                             <button
                               type="button"
@@ -839,8 +839,8 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                               </pre>
                             )}
                           </div>
-                        )}
-                        {result.responseReceived && (
+                        ) : null}
+                        {result.responseReceived ? (
                           <div>
                             <button
                               type="button"

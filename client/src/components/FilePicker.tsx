@@ -59,10 +59,10 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
       }
 
       // Store the directory handle for next time
-      setLastDirectoryHandle(dirHandle);
+      setLastDirectoryHandle(dirHandle as any);
 
-      setSelectedDirectory(dirHandle);
-      setSelectedDirectoryHandle(dirHandle);
+      setSelectedDirectory(dirHandle as any);
+      setSelectedDirectoryHandle(dirHandle as any);
 
       // Scan for images
       const fileEntries = await scanDirectory(dirHandle, true);
@@ -79,7 +79,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
           images.push({
             id: `${Date.now()}-${Math.random()}`,
             file,
-            fileHandle: entry.handle,
+            fileHandle: entry.handle as any,
             path: entry.path,
             originalName: file.name,
             extension,
@@ -104,7 +104,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
     }
   }, [setSelectedDirectory, lastDirectoryHandle, onSelectionChange]);
 
-  const handleSelectImages = useCallback(async () => {
+  const _handleSelectImages = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -131,7 +131,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
           images.push({
             id: `${Date.now()}-${Math.random()}`,
             file,
-            fileHandle: handle,
+            fileHandle: handle as any,
             path: file.name,
             originalName: file.name,
             extension,
@@ -456,7 +456,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
           setIsLoading(true);
           try {
             // Request readwrite permission
-            const permission = await directoryHandle.requestPermission({ mode: 'readwrite' });
+            const permission = await (directoryHandle as any).requestPermission?.({ mode: 'readwrite' });
             if (permission !== 'granted') {
               setError('Permission denied. Please grant read/write access to the folder.');
               setIsLoading(false);
@@ -482,7 +482,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
                 images.push({
                   id: `${Date.now()}-${Math.random()}`,
                   file,
-                  fileHandle: entry.handle,
+                  fileHandle: entry.handle as any,
                   path: entry.path,
                   originalName: file.name,
                   extension,

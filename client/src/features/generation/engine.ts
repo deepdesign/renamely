@@ -74,12 +74,12 @@ export function normalizeName(name: string, caseStyle: Preset['caseStyle'] | str
 }
 
 // Strip diacritics
-function stripDiacritics(str: string): string {
+function _stripDiacritics(str: string): string {
   return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 // Convert to ASCII-only
-function toASCII(str: string): string {
+function _toASCII(str: string): string {
   return str.replace(/[^\x00-\x7F]/g, '');
 }
 

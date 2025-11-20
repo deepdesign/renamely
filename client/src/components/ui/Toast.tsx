@@ -12,7 +12,7 @@ export interface ToastProps extends ToastPrimitive.ToastProps {
   variant?: 'default' | 'success' | 'error' | 'warning';
 }
 
-export const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
+export const Toast = React.forwardRef<HTMLLIElement, ToastProps>(
   ({ className, title, description, variant = 'default', ...props }, ref) => {
     const variants = {
       default: 'bg-white dark:bg-gray-800',
@@ -23,7 +23,7 @@ export const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
 
     return (
       <ToastPrimitive.Root
-        ref={ref}
+        ref={ref as any}
         className={cn(
           'rounded-md shadow-lg p-4 border',
           variants[variant],

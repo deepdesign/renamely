@@ -7,7 +7,7 @@ const NSFW_WORDS = new Set([
 ]);
 
 export function isNSFW(word: string): boolean {
-  return NSFW_WORDS.has(word.toLowerCase());
+  return NSFW_WORDS.has(word.toLowerCase() as any);
 }
 
 export function stripDiacritics(text: string): string {

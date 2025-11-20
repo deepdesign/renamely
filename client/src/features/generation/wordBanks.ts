@@ -117,6 +117,7 @@ export async function importWordBank(
   
   await db.wordBanks.add({
     ...wordBank,
+    themeId: wordBank.themeId || 'default',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });

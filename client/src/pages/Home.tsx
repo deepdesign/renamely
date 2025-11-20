@@ -656,8 +656,8 @@ export default function Home() {
           setProcessing(false);
           return;
         }
-        workingDirectory = destDir;
-        setSelectedDirectory(destDir);
+        workingDirectory = destDir as any;
+        setSelectedDirectory(destDir as any);
         userSelectedFolder = true; // User explicitly selected this folder - use it directly
       } catch (err: any) {
         addError('', `Failed to select destination folder: ${err.message}`);
@@ -695,7 +695,7 @@ export default function Home() {
           const folderName = destinationOption === 'subfolder' ? subfolderName : siblingFolderName;
           // Sanitize folder name to prevent path separator issues
           const sanitizedFolderName = folderName.split(/[/\\]/).filter(Boolean).pop() || folderName;
-          destinationDir = await createDirectory(workingDirectory, sanitizedFolderName);
+          destinationDir = await createDirectory(workingDirectory, sanitizedFolderName) as any;
           destinationFolderName = sanitizedFolderName; // Use the created subfolder name
         }
       }
@@ -925,7 +925,7 @@ export default function Home() {
                   <div className="flex-1 min-h-0 flex flex-col">
                     <FilePicker 
                       ref={filePickerRef} 
-                      onSelectionChange={(selectedCount, scannedCount) => {
+                      onSelectionChange={(selectedCount) => {
                         setSelectedImageCount(selectedCount);
                       }}
                     />

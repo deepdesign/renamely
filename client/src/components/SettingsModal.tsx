@@ -1,4 +1,3 @@
-import React from 'react';
 import { useAppStore } from '../features/store/slices';
 import Settings from '../pages/Settings';
 import { X } from 'lucide-react';

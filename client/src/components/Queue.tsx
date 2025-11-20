@@ -23,7 +23,7 @@ type QueueProps = {
 export default function Queue({ template, images, selectedVariants, metadata, onComplete }: QueueProps) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [, setIsProcessing] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [tunnelUrl, setTunnelUrl] = useState<string>('');
   const [tunnelStatus, setTunnelStatus] = useState<'unknown' | 'valid' | 'invalid'>('unknown');
@@ -40,6 +40,96 @@ export default function Queue({ template, images, selectedVariants, metadata, on
     setQueue(items);
     resultsRef.current = [];
   }, [images]);
+
+  // Get tunnel URL on mount and periodically
+  useEffect(() => {
+    const fetchTunnelUrl = async () => {
+      try {
+        const response = await getTunnelUrl();
+        setTunnelUrl(response.publicBaseUrl);
+        // Check if tunnel URL is valid
+        if (response.publicBaseUrl && response.publicBaseUrl.startsWith('http')) {
+          setTunnelStatus('valid');
+        } else {
+          setTunnelStatus('invalid');
+        }
+      } catch (err) {
+        console.error('Failed to get tunnel URL:', err);
+        setTunnelStatus('invalid');
+      }
+    };
+
+    fetchTunnelUrl();
+    const interval = setInterval(fetchTunnelUrl, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Check if URL needs regeneration
+  const needsUrlRefresh = useCallback((image: UploadedFile): boolean => {
+    // Cloud URLs don't need refresh
+    if (image.sourceType === 'dropbox' || image.sourceType === 'googledrive') {
+      return false;
+    }
+
+    // Check if publicUrl uses a different base URL than current tunnel
+    if (!image.publicUrl) {
+      return true; // No URL, needs refresh
+    }
+    
+    if (!tunnelUrl) {
+      // If we don't have tunnel URL yet, check if URL looks valid
+      // If it starts with http/https, assume it might be OK for now
+      // Otherwise, we'll need to wait for tunnel URL to be fetched
+      return !image.publicUrl.startsWith('http');
+    }
+
+    try {
+      const url = new URL(image.publicUrl);
+      const currentBase = new URL(tunnelUrl);
+      
+      // If hosts differ, URL needs refresh
+      if (url.host !== currentBase.host) {
+        return true;
+      }
+
+      // Check if token might be expired (simple heuristic - if URL is older than 1.5 hours)
+      // We regenerate if close to expiry to be safe
+      const expMatch = image.publicUrl.match(/[?&]e=(\d+)/);
+      if (expMatch) {
+        const expiry = parseInt(expMatch[1], 10);
+        const now = Math.floor(Date.now() / 1000);
+        const timeUntilExpiry = expiry - now;
+        // Regenerate if less than 30 minutes remaining
+        if (timeUntilExpiry < 30 * 60) {
+          return true;
+        }
+      }
+
+      return false;
+    } catch {
+      return true; // Invalid URL, needs refresh
+    }
+  }, [tunnelUrl]);
+
+  // Refresh URL for an image
+  const refreshImageUrl = useCallback(async (image: UploadedFile): Promise<UploadedFile> => {
+    if (!needsUrlRefresh(image)) {
+      return image; // No refresh needed
+    }
+
+    try {
+      const result = await regenerateFileUrl(image.fileId);
+      return {
+        ...image,
+        publicUrl: result.publicUrl,
+        thumbnailUrl: result.thumbnailUrl || image.thumbnailUrl,
+      };
+    } catch (err) {
+      console.error(`Failed to refresh URL for ${image.fileId}:`, err);
+      throw err;
+    }
+  }, [needsUrlRefresh]);
 
   // Auto-start processing when queue is ready
   useEffect(() => {
@@ -148,8 +238,7 @@ export default function Queue({ template, images, selectedVariants, metadata, on
     }
   }, [needsUrlRefresh]);
 
-  // Process a single queue item
-  const processItem = useCallback(async (itemIndex: number) => {
+  // Removed duplicate processItem - it's defined earlier
     if (processingRef.current || isPaused) {
       return;
     }
@@ -351,8 +440,8 @@ export default function Queue({ template, images, selectedVariants, metadata, on
     });
   }, [template, selectedVariants, metadata, needsUrlRefresh, refreshImageUrl, isPaused, onComplete]);
 
-  // Start processing queue
-  const startQueue = () => {
+  // Start processing queue (duplicate - removing)
+  const _startQueue = () => {
     if (processingRef.current) return;
     
     setQueue(current => {
@@ -386,7 +475,7 @@ export default function Queue({ template, images, selectedVariants, metadata, on
       const item = current.find(q => q.index === index);
       if (item && (item.status === 'error' || item.status === 'skipped')) {
         const updated = current.map(q => 
-          q.index === index ? { ...q, status: 'pending', error: undefined } : q
+          q.index === index ? { ...q, status: 'pending' as const, error: undefined } : q
         );
         // Remove from results if it was there (find by index)
         const queueIndex = current.findIndex(q => q.index === index);

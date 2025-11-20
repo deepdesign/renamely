@@ -60,7 +60,7 @@ export function ImageGrid({}: ImageGridProps) {
     scheduleUpdate();
     
     // Also update on window resize with debouncing
-    let resizeTimeout: NodeJS.Timeout;
+    let resizeTimeout: ReturnType<typeof setTimeout>;
     const handleResize = () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(scheduleUpdate, 100);

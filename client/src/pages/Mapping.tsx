@@ -45,7 +45,7 @@ export default function Mapping() {
 
   return (
     <div className="space-y-6">
-      <FileBrowser onFilesAdded={handleFilesAdded} />
+      <FileBrowser onFilesAdded={(files) => handleFilesAdded(files as any)} />
       
       <MappingGrid
         templates={templates}

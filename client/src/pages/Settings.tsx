@@ -1002,9 +1002,9 @@ interface PresetFormProps {
   onCancel: () => void;
 }
 
-function PresetForm({ preset, themes, wordBanks, onSave, onCancel }: PresetFormProps) {
+function PresetForm({ preset, wordBanks, onSave, onCancel }: PresetFormProps) {
   // Initialize template parts from preset template or default
-  const initialTemplate = preset?.template || '{adjective}-{noun}';
+  const _initialTemplate = preset?.template || '{adjective}-{noun}';
   const [templateParts, setTemplateParts] = useState<TemplatePart[]>(() => {
     if (preset?.template) {
       return templateStringToParts(preset.template);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/Button';
-import { Plus, Trash2, GripVertical, X } from 'lucide-react';
+import { Trash2, GripVertical } from 'lucide-react';
 
 export type TemplateElement = 'prefix' | 'adjective' | 'noun' | 'suffix' | 'date' | 'counter';
 
@@ -17,7 +17,7 @@ interface TemplateBuilderProps {
   delimiter?: string;
 }
 
-export function TemplateBuilder({ value, onChange, numAdjectives, onNumAdjectivesChange, delimiter = '-' }: TemplateBuilderProps) {
+export function TemplateBuilder({ value, onChange, numAdjectives, delimiter = '-' }: TemplateBuilderProps) {
   const [parts, setParts] = useState<TemplatePart[]>(value || []);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);

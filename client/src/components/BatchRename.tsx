@@ -1,10 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
-import { FolderPlus, ArrowRight, X, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { FolderPlus, Loader2 } from 'lucide-react';
 import { useAppStore } from '../features/store/slices';
 import { createDirectory, moveFile, renameFile, selectDirectory } from '../features/files/fs-api';
-import { db } from '../features/store/db';
 import type { AuditEntry, AuditBatch } from '../features/store/db';
 import { registerName } from '../features/generation/engine';
 
@@ -69,9 +68,9 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
           setProcessing(false);
           return;
         }
-        workingDirectory = destDir;
+        workingDirectory = destDir as any;
         // Update the store with the selected directory
-        setSelectedDirectory(destDir);
+        setSelectedDirectory(destDir as any);
       } catch (err: any) {
         addError('', `Failed to select destination folder: ${err.message}`);
         setProcessing(false);
@@ -93,12 +92,12 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
       let destinationDir: FileSystemDirectoryHandle | null = null;
       if (workingDirectory) {
         if (destinationOption === 'subfolder') {
-          destinationDir = await createDirectory(workingDirectory, subfolderName);
+          destinationDir = await createDirectory(workingDirectory, subfolderName) as any;
         } else {
           // Create sibling folder
           // Note: File System Access API doesn't easily support parent directory access
           // This is a simplified version - in practice, you'd need to track parent
-          destinationDir = await createDirectory(workingDirectory, siblingFolderName);
+          destinationDir = await createDirectory(workingDirectory, siblingFolderName) as any;
         }
       }
 
