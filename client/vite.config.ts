@@ -12,6 +12,10 @@ export default defineConfig(({ mode }) => {
       port: 5173,
     },
     build: {
+      outDir: 'dist',
+      assetsDir: 'assets',
+      sourcemap: false,
+      minify: 'terser',
       rollupOptions: {
         plugins: process.env.ANALYZE === 'true' ? [
           visualizer({

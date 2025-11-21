@@ -15,7 +15,7 @@ import {
   createDirectory,
 } from '../features/files/fs-api';
 import { useErrorHandling } from './useErrorHandling';
-import type { FileSystemDirectoryHandle, FileSystemFileHandle } from '../features/files/filesystem';
+// FileSystem API types are available globally in modern browsers
 
 export interface UseFileSystemReturn {
   /** Currently selected directory handle */

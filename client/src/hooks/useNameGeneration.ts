@@ -10,8 +10,8 @@ import { generateName, registerName, releaseNames } from '../features/generation
 import { db } from '../features/store/db';
 import { logger } from '../lib/logger';
 import { useErrorHandling } from './useErrorHandling';
-import type { Preset, Theme, WordBank, ImageFile } from '../features/store/slices';
-import type { Settings } from '../features/store/db';
+import type { ImageFile } from '../features/store/slices';
+import type { Preset, Theme, WordBank, Settings } from '../features/store/db';
 
 export interface UseNameGenerationReturn {
   /** Whether name generation is in progress */

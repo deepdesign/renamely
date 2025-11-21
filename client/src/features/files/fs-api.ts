@@ -77,7 +77,7 @@ export async function selectDirectory(startIn?: FileSystemDirectoryHandle): Prom
     }
     return handle;
   } catch (err: unknown) {
-    if (err.name === 'AbortError') {
+    if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
       return null;
     }
     throw err;
@@ -145,7 +145,7 @@ export async function selectImageFiles(startIn?: FileSystemDirectoryHandle): Pro
     }
     return handles;
   } catch (err: unknown) {
-    if (err.name === 'AbortError') {
+    if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
       return null;
     }
     throw err;
@@ -379,7 +379,9 @@ export async function moveFile(
         await retryFileOperation(
           async () => {
         // Move to target directory with new name
-            await sourceHandle.move(targetDirHandle, sanitizedName);
+        // Note: move() can take (destinationDir, newName) but TypeScript types may not reflect this
+        // Using type assertion as the API supports this in Chrome 102+
+            await (sourceHandle.move as any)(targetDirHandle, sanitizedName);
           },
           'move',
           sanitizedName,

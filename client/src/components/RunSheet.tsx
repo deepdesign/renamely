@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
-import type { ProductCreationResult, ProductStatusResponse } from '../lib/types';
+import { useState, useEffect, useRef, memo, useMemo } from 'react';
+import type { ProductCreationResult } from '../lib/types';
 import { generateCSV, downloadCSV } from '../lib/validators';
 import { getProductStatus } from '../lib/api';
 import { logger } from '../lib/logger';

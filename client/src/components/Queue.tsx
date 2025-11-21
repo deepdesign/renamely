@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { regenerateFileUrl, getTunnelUrl, createFromTemplate } from '../lib/api';
 import type { TemplateInfo, UploadedFile, CreateFromTemplateBody, ProductCreationResult, VariantAssignment, PlaceholderAssignment } from '../lib/types';
 import { toHeadlineCase } from '../lib/utils';

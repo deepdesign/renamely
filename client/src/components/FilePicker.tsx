@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, forwardRef, memo } from 'react';
 import { FolderOpen, Loader2, FileImage, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from './ui/Button';
-import { selectDirectory, selectImageFiles, scanDirectory, createThumbnailUrl } from '../features/files/fs-api';
+import { selectDirectory, scanDirectory, createThumbnailUrl } from '../features/files/fs-api';
 import { useAppStore } from '../features/store/slices';
 import type { ImageFile } from '../features/store/slices';
 import { logger } from '../lib/logger';
@@ -11,7 +11,7 @@ import { isFileSystemDirectoryHandle, isFileSystemFileHandle, isHTMLElement } fr
 interface ScannedImage {
   id: string;
   file: File;
-  fileHandle: FileSystemFileHandle;
+  fileHandle: FileSystemFileHandle | null;
   path: string;
   originalName: string;
   extension: string;

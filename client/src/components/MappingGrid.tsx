@@ -1,4 +1,4 @@
-import React, { useState, memo } from 'react';
+import { useState, memo } from 'react';
 import type { TemplateInfo, UploadedFile, VariantAssignment } from '../lib/types';
 
 type MappingGridProps = {

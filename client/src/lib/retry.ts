@@ -5,6 +5,10 @@
 import { logger } from './logger';
 import { isRetryableError } from './errors';
 
+interface LogContext {
+  [key: string]: unknown;
+}
+
 export interface RetryOptions {
   maxAttempts?: number;
   initialDelayMs?: number;
@@ -59,16 +63,16 @@ export async function retry<T>(
 
       // Don't retry if error is not retryable
       if (!isRetryableError(error)) {
-        logger.debug('Error is not retryable', error, { attempt });
+        logger.debug('Error is not retryable', error, { attempt } as LogContext);
         throw error;
       }
 
       // Don't retry on last attempt
       if (attempt >= config.maxAttempts) {
-        logger.warn('Max retry attempts reached', error, { 
-          attempt, 
-          maxAttempts: config.maxAttempts 
-        });
+        logger.warn('Max retry attempts reached', error, {
+          attempt,
+          maxAttempts: config.maxAttempts
+        } as LogContext);
         break;
       }
 
@@ -109,7 +113,7 @@ export async function retryFileOperation<T>(
         attempt,
         operation,
         filePath,
-      });
+      } as LogContext);
       if (options.onRetry) {
         options.onRetry(attempt, error);
       }
@@ -132,7 +136,7 @@ export async function retryApiCall<T>(
       logger.warn(`Retrying API call: ${endpoint}`, error instanceof Error ? error : new Error(String(error)), {
         attempt,
         endpoint,
-      });
+      } as LogContext);
       if (options.onRetry) {
         options.onRetry(attempt, error);
       }

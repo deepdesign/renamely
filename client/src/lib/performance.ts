@@ -132,29 +132,9 @@ export const performanceMonitor = new PerformanceMonitor();
  * React hook for measuring component render time
  */
 export function useRenderTime(componentName: string): void {
-  if (import.meta.env.DEV) {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const { useEffect, useRef } = require('react');
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const renderStartRef = useRef<number | null>(null);
-
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    useEffect(() => {
-      renderStartRef.current = performance.now();
-
-      return () => {
-        if (renderStartRef.current !== null) {
-          const renderTime = performance.now() - renderStartRef.current;
-          performanceMonitor.recordMetric({
-            name: `render:${componentName}`,
-            value: renderTime,
-            unit: 'ms',
-            timestamp: Date.now(),
-          });
-        }
-      };
-    });
-  }
+  // Performance tracking with React hooks is disabled for now
+  // It requires hooks context which is not available in utility functions
+  // Consider using React DevTools Profiler or implementing as a React hook instead
 }
 
 /**
@@ -197,7 +177,7 @@ export function measureBundleSize(): void {
       timestamp: Date.now(),
     });
   } catch (error) {
-    logger.warn('Failed to measure bundle size', error instanceof Error ? error : new Error(String(error)));
+    logger.warn('Failed to measure bundle size', error instanceof Error ? error : new Error(String(error)), undefined);
   }
 }
 
@@ -252,7 +232,7 @@ export function trackWebVitals(): void {
       });
     }).observe({ entryTypes: ['layout-shift'] });
   } catch (error) {
-    logger.warn('Failed to track web vitals', error instanceof Error ? error : new Error(String(error)));
+    logger.warn('Failed to track web vitals', error instanceof Error ? error : new Error(String(error)), undefined);
   }
 }
 

@@ -3,6 +3,7 @@ import { getCloudCredentials, saveCloudCredentials } from '../lib/storage';
 import { listDropboxFiles, getDropboxDownloadLink, listGoogleDriveFiles, getGoogleDriveDownloadLink, refreshDropboxToken } from '../lib/api';
 import { logger } from '../lib/logger';
 import { isHTMLImageElement } from '../lib/type-guards';
+import { validateFileType } from '../lib/validators';
 
 type FileBrowserProps = {
   onFilesAdded: (files: File[]) => void;

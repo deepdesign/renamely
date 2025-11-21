@@ -35,9 +35,26 @@ class Logger {
     }
   }
 
-  warn(message: string, context?: LogContext): void {
+  warn(message: string, errorOrContext?: Error | unknown | LogContext, context?: LogContext): void {
     // Warnings should always be shown
-    console.warn(this.formatMessage('warn', message, context));
+    let warnContext: LogContext | undefined;
+    
+    if (errorOrContext instanceof Error || (errorOrContext && typeof errorOrContext === 'object' && 'message' in errorOrContext && 'stack' in errorOrContext)) {
+      // First param is an error
+      warnContext = {
+        ...context,
+        error: errorOrContext instanceof Error ? {
+          name: errorOrContext.name,
+          message: errorOrContext.message,
+          stack: errorOrContext.stack,
+        } : errorOrContext,
+      };
+    } else {
+      // First param is context or nothing
+      warnContext = (errorOrContext as LogContext | undefined) ?? context;
+    }
+    
+    console.warn(this.formatMessage('warn', message, warnContext));
   }
 
   error(message: string, error?: Error | unknown, context?: LogContext): void {
@@ -58,9 +75,17 @@ class Logger {
     // }
   }
 
-  debug(message: string, context?: LogContext): void {
+  debug(message: string, error?: Error | unknown, context?: LogContext): void {
     if (this.isDevelopment) {
-      console.debug(this.formatMessage('debug', message, context));
+      const debugContext = error ? {
+        ...context,
+        error: error instanceof Error ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        } : error,
+      } : context;
+      console.debug(this.formatMessage('debug', message, debugContext));
     }
   }
 

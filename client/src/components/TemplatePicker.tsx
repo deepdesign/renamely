@@ -56,20 +56,25 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
           // - imagePlaceholders[] with name, printArea, height, width
           if (data.variants && Array.isArray(data.variants)) {
             for (const variant of data.variants) {
-              const placeholders = (variant.imagePlaceholders || []).map((p) => ({
-                name: p.name || '',
-                size: p.height && p.width ? {
-                  width: p.width,
-                  height: p.height,
-                  unit: 'mm', // API docs specify mm
-                } : undefined,
-              }));
+              const placeholders = (variant.imagePlaceholders || []).map((p) => {
+                const placeholder: { name: string; size?: { width?: number; height?: number; unit: string } } = {
+                  name: p.name || '',
+                };
+                if (p.height && p.width) {
+                  placeholder.size = {
+                    width: typeof p.width === 'number' ? p.width : undefined,
+                    height: typeof p.height === 'number' ? p.height : undefined,
+                    unit: 'mm', // API docs specify mm
+                  };
+                }
+                return placeholder;
+              });
 
               const variantId = variant.id || '';
-              const variantName = variant.title || variantId || 'Unnamed Variant';
+              const variantName: string = (typeof variant.title === 'string' && variant.title ? variant.title : '') || variantId || 'Unnamed Variant';
               variants.push({
                 id: variantId,
-                name: variantName,
+                name: variantName || 'Unnamed Variant',
                 placeholders,
               });
             }
@@ -80,13 +85,13 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
       // Response includes: templateName (string) - Template name
       // Also available: title (string) - Product title
       const templateName: string = 
-        (data.templateName && typeof data.templateName === 'string' ? data.templateName : null) ||
-        (data.title && typeof data.title === 'string' ? data.title : null) ||
+        (data.templateName && typeof data.templateName === 'string' ? data.templateName : '') ||
+        (data.title && typeof data.title === 'string' ? data.title : '') ||
         `Template ${templateId}`;
 
       const template: TemplateInfo = {
         id: templateId,
-        name: templateName,
+        name: templateName as string,
         variants,
       };
 
@@ -180,20 +185,25 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
           // - imagePlaceholders[] with name, printArea, height, width
           if (data.variants && Array.isArray(data.variants)) {
             for (const variant of data.variants) {
-              const placeholders = (variant.imagePlaceholders || []).map((p) => ({
-                name: p.name || '',
-                size: p.height && p.width ? {
-                  width: p.width,
-                  height: p.height,
-                  unit: 'mm', // API docs specify mm
-                } : undefined,
-              }));
+              const placeholders = (variant.imagePlaceholders || []).map((p) => {
+                const placeholder: { name: string; size?: { width?: number; height?: number; unit: string } } = {
+                  name: p.name || '',
+                };
+                if (p.height && p.width) {
+                  placeholder.size = {
+                    width: typeof p.width === 'number' ? p.width : undefined,
+                    height: typeof p.height === 'number' ? p.height : undefined,
+                    unit: 'mm', // API docs specify mm
+                  };
+                }
+                return placeholder;
+              });
 
               const variantId = variant.id || '';
-              const variantName = variant.title || variantId || 'Unnamed Variant';
+              const variantName: string = (typeof variant.title === 'string' && variant.title ? variant.title : '') || variantId || 'Unnamed Variant';
               variants.push({
                 id: variantId,
-                name: variantName,
+                name: variantName || 'Unnamed Variant',
                 placeholders,
               });
             }
@@ -203,14 +213,14 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
           // Official docs: https://dashboard.gelato.com/docs/ecommerce/templates/get/
           // Response includes: templateName (string) - Template name
           // Also available: title (string) - Product title
-          const templateName = 
-            data.templateName ||            // Official field per API docs
-            data.title ||                   // Product title (fallback)
-            `Template ${id}`;              // Final fallback
+          const templateName: string = 
+            (data.templateName && typeof data.templateName === 'string' ? data.templateName : '') ||
+            (data.title && typeof data.title === 'string' ? data.title : '') ||
+            `Template ${id}`;
 
           const template: TemplateInfo = {
             id,
-            name: templateName,
+            name: templateName || `Template ${id}`,
             variants,
           };
 
