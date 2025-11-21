@@ -25,6 +25,7 @@
 
 import { useEffect, useState, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { logger } from '../lib/logger';
 
 interface Project {
   name: string;
@@ -72,10 +73,10 @@ export default function Footer({
       logoLight: "/_other logos/walljazzle-circle-light.svg"
     },
     {
-      name: "Bitlab",
-      url: "https://bitlab.jamescutts.me/",
-      logoDark: "/_other logos/bitlab-logo-circle-dark.svg",
-      logoLight: "/_other logos/bitlab-logo-circle-light.svg"
+      name: "Pixli",
+      url: "https://www.pixli.jamescutts.me/",
+      logoDark: "/_other logos/pixli-logo-circle-dark.svg",
+      logoLight: "/_other logos/pixli-logo-circle-light.svg"
     }
   ],
   companyName = "Deep Design Pty Ltd",
@@ -148,8 +149,32 @@ export default function Footer({
                     >
                       <img
                         src={isDark ? project.logoDark : project.logoLight}
-                        alt={project.name}
+                        alt={`${project.name} logo`}
                         className="h-[40px] w-auto opacity-100 hover:opacity-70 transition-opacity"
+                        loading="lazy"
+                        onError={(e) => {
+                          // Fallback if image fails to load - show text instead
+                          const target = e.target as HTMLImageElement;
+                          const parent = target.parentElement;
+                          if (parent) {
+                            target.style.display = 'none';
+                            // Create fallback text element
+                            const fallback = document.createElement('span');
+                            fallback.className = 'text-sm font-medium';
+                            fallback.textContent = project.name;
+                            parent.appendChild(fallback);
+                          }
+                          logger.warn(`Failed to load logo for ${project.name}`, { 
+                            logoPath: isDark ? project.logoDark : project.logoLight,
+                            error: 'Image failed to load'
+                          });
+                        }}
+                        onLoad={() => {
+                          // Image loaded successfully
+                          logger.debug(`Logo loaded successfully for ${project.name}`, {
+                            logoPath: isDark ? project.logoDark : project.logoLight
+                          });
+                        }}
                       />
                     </a>
                   </li>

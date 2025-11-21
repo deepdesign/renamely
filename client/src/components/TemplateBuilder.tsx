@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/Button';
 import { Trash2, GripVertical } from 'lucide-react';
+import { validateTemplate } from '../lib/validators';
+import { logger } from '../lib/logger';
 
 export type TemplateElement = 'prefix' | 'adjective' | 'noun' | 'suffix' | 'date' | 'counter';
 
@@ -9,6 +11,16 @@ export interface TemplatePart {
   type: TemplateElement;
 }
 
+/**
+ * Props for the TemplateBuilder component
+ * 
+ * @interface TemplateBuilderProps
+ * @property {TemplatePart[]} value - Current template parts
+ * @property {(parts: TemplatePart[]) => void} onChange - Callback when template parts change
+ * @property {number} numAdjectives - Number of adjectives to use in the template
+ * @property {(num: number) => void} onNumAdjectivesChange - Callback when number of adjectives changes
+ * @property {string} [delimiter] - Optional delimiter to use between template parts
+ */
 interface TemplateBuilderProps {
   value: TemplatePart[];
   onChange: (parts: TemplatePart[]) => void;
@@ -33,6 +45,15 @@ export function TemplateBuilder({ value, onChange, numAdjectives, delimiter = '-
     };
     const updated = [...parts, newPart];
     setParts(updated);
+    
+    // Validate template string before calling onChange
+    const templateString = templatePartsToString(updated, delimiter);
+    const validation = validateTemplate(templateString);
+    if (!validation.valid) {
+      logger.warn('Template validation warning', { error: validation.error });
+      // Still allow the change, but log the warning
+    }
+    
     onChange(updated);
   };
 

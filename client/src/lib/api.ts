@@ -1,7 +1,27 @@
-// API functions - to be implemented for new image renaming app
-// These are stubs that will throw errors if called - replace with actual implementations
+/**
+ * API functions - to be implemented for new image renaming app
+ * 
+ * These are stubs that will throw errors if called - replace with actual implementations.
+ * 
+ * When implementing these functions, wrap them with retryApiCall() from './retry' for
+ * automatic retry on transient failures:
+ * 
+ * @example
+ * ```typescript
+ * import { retryApiCall } from './retry';
+ * 
+ * export async function getTemplate(id: string): Promise<GetTemplateResponse> {
+ *   return retryApiCall(
+ *     () => fetch(`/api/templates/${id}`).then(r => r.json()),
+ *     `GET /api/templates/${id}`
+ *   );
+ * }
+ * ```
+ */
 
-export async function getTemplate(_id: string): Promise<unknown> {
+import type { GetTemplateResponse, CreateFromTemplateResponse, ProductStatusResponse } from './types';
+
+export async function getTemplate(_id: string): Promise<GetTemplateResponse> {
   throw new Error('API not implemented - replace with your implementation');
 }
 
@@ -9,11 +29,11 @@ export async function uploadLocal(_file: File): Promise<{ fileId: string; public
   throw new Error('API not implemented - replace with your implementation');
 }
 
-export async function createFromTemplate(_payload: unknown): Promise<unknown> {
+export async function createFromTemplate(_payload: unknown): Promise<CreateFromTemplateResponse> {
   throw new Error('API not implemented - replace with your implementation');
 }
 
-export async function getProductStatus(_productId: string): Promise<unknown> {
+export async function getProductStatus(_productId: string): Promise<ProductStatusResponse> {
   throw new Error('API not implemented - replace with your implementation');
 }
 

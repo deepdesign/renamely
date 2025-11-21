@@ -1,15 +1,38 @@
 import { Routes, Route, Link } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { trackWebVitals } from './lib/performance';
 import Home from './pages/Home';
-import Settings from './pages/Settings';
 import DarkModeToggle from './components/DarkModeToggle';
 import Logo from './components/Logo';
 import Footer from './components/Footer';
-import { Settings as SettingsIcon } from 'lucide-react';
+import { SkipLinks } from './components/SkipLinks';
+import { Settings as SettingsIcon, Loader2 } from 'lucide-react';
+
+// Lazy load pages for code splitting
+const Settings = lazy(() => import('./pages/Settings'));
+const Review = lazy(() => import('./pages/Review'));
+const Mapping = lazy(() => import('./pages/Mapping'));
+const ColorOptions = lazy(() => import('./pages/ColorOptions'));
+
+// Loading fallback component
+function LoadingFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+    </div>
+  );
+}
 
 function App() {
+  // Initialize performance tracking
+  useEffect(() => {
+    trackWebVitals();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors flex flex-col">
-      <nav className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
+      <SkipLinks />
+      <nav className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40" role="navigation" aria-label="Main navigation">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
@@ -35,11 +58,16 @@ function App() {
         </div>
       </nav>
       
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 w-full flex flex-col min-h-0">
+      <main id="main-content" className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 w-full flex flex-col min-h-0" tabIndex={-1}>
+        <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/settings" element={<Settings />} />
+            <Route path="/review" element={<Review />} />
+            <Route path="/mapping" element={<Mapping />} />
+            <Route path="/color-options" element={<ColorOptions />} />
         </Routes>
+        </Suspense>
       </main>
       
       <Footer 

@@ -31,11 +31,12 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 // Mock File System Access API
-global.showDirectoryPicker = async () => {
-  throw new Error('File System Access API not available in test environment');
-};
+// Import mock implementations
+import { setupFileSystemMocks } from './mocks/fileSystem';
 
-global.showOpenFilePicker = async () => {
-  throw new Error('File System Access API not available in test environment');
-};
+// Setup file system mocks
+setupFileSystemMocks();
+
+// Mock IndexedDB (Dexie) - Note: Actual mocking would require more setup
+// For now, tests should use the mock utilities from test/mocks/indexedDB.ts
 

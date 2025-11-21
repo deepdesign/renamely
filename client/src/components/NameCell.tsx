@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo } from 'react';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
 import { Check, X, Edit2 } from 'lucide-react';
@@ -14,7 +14,7 @@ interface NameCellProps {
   onNameChange: (newName: string) => void;
 }
 
-export function NameCell({
+export const NameCell = memo(function NameCell({
   image,
   isEditing,
   onStartEdit,
@@ -137,5 +137,5 @@ export function NameCell({
       )}
     </div>
   );
-}
+});
 

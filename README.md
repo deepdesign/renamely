@@ -85,6 +85,26 @@ Open the app in your browser at `http://localhost:5173`
 
 ---
 
+## 🛠️ Development
+
+See [DEVELOPMENT.md](./DEVELOPMENT.md) for detailed development setup, architecture, and contribution guidelines.
+
+### Quick Commands
+
+```bash
+# Development
+npm run dev              # Start dev server
+npm test                 # Run tests
+npm run test:coverage    # Run tests with coverage
+npm run lint             # Lint code
+npm run type-check       # TypeScript type checking
+npm run format           # Format code
+
+# Production
+npm run build            # Build for production
+npm run analyze          # Analyze bundle size
+```
+
 ## 📖 Usage
 
 ### Step 1: Select Images

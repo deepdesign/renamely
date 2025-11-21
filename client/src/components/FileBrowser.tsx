@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { getCloudCredentials, saveCloudCredentials } from '../lib/storage';
 import { listDropboxFiles, getDropboxDownloadLink, listGoogleDriveFiles, getGoogleDriveDownloadLink, refreshDropboxToken } from '../lib/api';
+import { logger } from '../lib/logger';
+import { isHTMLImageElement } from '../lib/type-guards';
 
 type FileBrowserProps = {
   onFilesAdded: (files: File[]) => void;
@@ -29,7 +31,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
   const [dropboxFiles, setDropboxFiles] = useState<CloudFile[]>([]);
   const [dropboxFolders, setDropboxFolders] = useState<CloudFile[]>([]);
   const [googleDriveFiles, setGoogleDriveFiles] = useState<CloudFile[]>([]);
-  const [googleDriveFolders] = useState<CloudFile[]>([]);
+  // Removed unused googleDriveFolders state
   const [selectedCloudFiles, setSelectedCloudFiles] = useState<Set<string>>(new Set());
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
@@ -52,7 +54,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
     isGoogleDriveConnected = !!credentials?.googleDriveAccessToken && 
       (!credentials.googleDriveTokenExpiry || credentials.googleDriveTokenExpiry > Date.now());
   } catch (err) {
-    console.error('Error getting cloud credentials:', err);
+    logger.error('Error getting cloud credentials', err instanceof Error ? err : new Error(String(err)));
     credentials = {} as ReturnType<typeof getCloudCredentials>;
   }
   
@@ -100,14 +102,6 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
     });
   };
   
-  const _saveGoogleDriveFolderId = (folderId: string) => {
-    setCurrentGoogleDriveFolderId(folderId);
-    const creds = getCloudCredentials();
-    saveCloudCredentials({
-      ...creds,
-      googleDriveLastFolderId: folderId,
-    });
-  };
 
   // Check for OAuth errors from URL params
   useEffect(() => {
@@ -197,7 +191,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
         if (isExpired || isExpiringSoon) {
           tokenRefreshAttemptedRef.current.dropbox = true;
           try {
-            console.log('Dropbox token expired or expiring soon, automatically refreshing...');
+            logger.info('Dropbox token expired or expiring soon, automatically refreshing...');
             const refreshResult = await refreshDropboxToken(creds.dropboxRefreshToken);
             
             saveCloudCredentials({
@@ -209,9 +203,9 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
             // Trigger re-render to update connection status
             setCredentialsVersion(prev => prev + 1);
             
-            console.log('Dropbox token refreshed successfully');
+            logger.info('Dropbox token refreshed successfully');
           } catch (err) {
-            console.error('Failed to automatically refresh Dropbox token:', err);
+            logger.error('Failed to automatically refresh Dropbox token', err instanceof Error ? err : new Error(String(err)));
             // Token refresh failed - user will need to reconnect
             // Clear invalid tokens so they're prompted to reconnect
             saveCloudCredentials({
@@ -232,7 +226,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
       // For now, we'll just handle Dropbox
     };
 
-    refreshTokensIfNeeded();
+    void refreshTokensIfNeeded();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
@@ -249,7 +243,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
         // Only load if we haven't loaded this path yet
         if (filesLoadedRef.current.dropbox !== pathToLoad) {
           filesLoadedRef.current.dropbox = pathToLoad;
-          loadDropboxFiles();
+          void loadDropboxFiles();
         }
       } else if (uploadMethod === 'googledrive' && isGoogleDriveConnected && googleDriveFiles.length === 0) {
         // Load from saved folder or root
@@ -260,7 +254,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
         // Only load if we haven't loaded this folder yet
         if (filesLoadedRef.current.googledrive !== folderToLoad) {
           filesLoadedRef.current.googledrive = folderToLoad;
-          loadGoogleDriveFiles();
+          void loadGoogleDriveFiles();
         }
       }
       
@@ -272,7 +266,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
         filesLoadedRef.current.googledrive = null;
       }
     } catch (err) {
-      console.error('Error in file loading useEffect:', err);
+      logger.error('Error in file loading useEffect', err instanceof Error ? err : new Error(String(err)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadMethod, isDropboxConnected, isGoogleDriveConnected]);
@@ -284,7 +278,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
       // Only reload if path actually changed (not initial mount)
       if (prevDropboxPathRef.current !== currentDropboxPath && prevDropboxPathRef.current !== undefined) {
         filesLoadedRef.current.dropbox = currentDropboxPath;
-        loadDropboxFiles();
+        void loadDropboxFiles();
       }
       prevDropboxPathRef.current = currentDropboxPath;
     }
@@ -307,13 +301,18 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
 
     setError(null);
     
-    // Filter to only image files
-    const imageFiles = files.filter(file => {
-      const type = file.type.toLowerCase();
-      return type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp'].some(ext => 
-        file.name.toLowerCase().endsWith(`.${ext}`)
-      );
-    });
+    // Filter and validate image files using proper validation
+    const imageFiles: File[] = [];
+    const invalidFiles: string[] = [];
+    
+    for (const file of files) {
+      const typeValidation = validateFileType(file);
+      if (typeValidation.valid) {
+        imageFiles.push(file);
+      } else {
+        invalidFiles.push(file.name);
+      }
+    }
 
     if (imageFiles.length === 0) {
       setError('Please select image files only');
@@ -353,7 +352,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
     setLoadingFiles(true);
     setError(null);
     try {
-      console.log(`Loading Dropbox files from path: "${currentDropboxPath}"`);
+      logger.info(`Loading Dropbox files from path: "${currentDropboxPath}"`, { path: currentDropboxPath });
       let result;
       try {
         result = await listDropboxFiles(freshCredentials.dropboxAccessToken, currentDropboxPath);
@@ -363,7 +362,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
         if (errorMessage.includes('401') || errorMessage.includes('expired_access_token')) {
           // Try to refresh the token
           if (freshCredentials.dropboxRefreshToken) {
-            console.log('Dropbox token expired, attempting to refresh...');
+            logger.info('Dropbox token expired, attempting to refresh...');
             try {
               const refreshResult = await refreshDropboxToken(freshCredentials.dropboxRefreshToken);
               
@@ -376,10 +375,10 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
               saveCloudCredentials(freshCredentials);
               
               // Retry the request with new token
-              console.log('Token refreshed, retrying file list...');
+              logger.info('Token refreshed, retrying file list...');
               result = await listDropboxFiles(freshCredentials.dropboxAccessToken!, currentDropboxPath);
             } catch (refreshErr) {
-              console.error('Failed to refresh Dropbox token:', refreshErr);
+              logger.error('Failed to refresh Dropbox token', refreshErr instanceof Error ? refreshErr : new Error(String(refreshErr)));
               setError('Your Dropbox session expired. Please reconnect to Dropbox.');
               return;
             }
@@ -392,7 +391,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
         }
       }
       
-      console.log(`Dropbox API returned ${result.folders?.length || 0} folders and ${result.files.length} image files`);
+      logger.info(`Dropbox API returned ${result.folders?.length || 0} folders and ${result.files.length} image files`, { folders: result.folders?.length || 0, files: result.files.length });
       
       if (result.files.length === 0 && (result.folders?.length || 0) === 0) {
         setError('No files or folders found. Make sure you have image files (JPG, PNG, GIF, etc.) in your Dropbox.');
@@ -431,7 +430,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
       setLastSelectedIndex(null); // Reset last selected index when files reload
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      console.error('Error loading Dropbox files:', err);
+      logger.error('Error loading Dropbox files', err instanceof Error ? err : new Error(String(err)));
       setError(`Failed to load Dropbox files: ${errorMessage}. Check the browser console for details.`);
     } finally {
       setLoadingFiles(false);
@@ -450,9 +449,9 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
     setLoadingFiles(true);
     setError(null);
     try {
-      console.log(`Loading Google Drive files from folder: "${currentGoogleDriveFolderId}"`);
+      logger.info(`Loading Google Drive files from folder: "${currentGoogleDriveFolderId}"`, { folderId: currentGoogleDriveFolderId });
       const result = await listGoogleDriveFiles(freshCredentials.googleDriveAccessToken, currentGoogleDriveFolderId);
-      console.log(`Google Drive API returned ${result.files.length} image files`);
+      logger.info(`Google Drive API returned ${result.files.length} image files`, { fileCount: result.files.length });
       
       if (result.files.length === 0) {
         setError('No image files found in your Google Drive root folder. Make sure you have image files (JPG, PNG, GIF, etc.) in your Google Drive.');
@@ -479,7 +478,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      console.error('Error loading Google Drive files:', err);
+      logger.error('Error loading Google Drive files', err instanceof Error ? err : new Error(String(err)));
       setError(`Failed to load Google Drive files: ${errorMessage}. Check the browser console for details.`);
     } finally {
       setLoadingFiles(false);
@@ -560,11 +559,11 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
                     // Retry with new token
                     result = await getDropboxDownloadLink(currentCredentials.dropboxAccessToken!, file.path);
                   } catch (refreshErr) {
-                    console.error(`Failed to refresh token for ${file.name}:`, refreshErr);
+                    logger.error(`Failed to refresh token for ${file.name}`, refreshErr instanceof Error ? refreshErr : new Error(String(refreshErr)), { fileName: file.name });
                     continue; // Skip this file
                   }
                 } else {
-                  console.error(`Token expired and no refresh token for ${file.name}`);
+                  logger.error(`Token expired and no refresh token for ${file.name}`, undefined, { fileName: file.name });
                   continue; // Skip this file
                 }
               } else {
@@ -585,7 +584,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
             });
           }
         } catch (err) {
-          console.error(`Failed to get download link for ${file.name}:`, err);
+          logger.error(`Failed to get download link for ${file.name}`, err instanceof Error ? err : new Error(String(err)), { fileName: file.name });
         }
       }
 
@@ -611,7 +610,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
         try {
           onSelectedFilesChange(selectedCloudFiles.size, handleAddSelectedCloudFiles);
         } catch (err) {
-          console.error('Error in onSelectedFilesChange:', err);
+          logger.error('Error in onSelectedFilesChange', err instanceof Error ? err : new Error(String(err)));
         }
       } else {
         // Reset when no files selected
@@ -769,7 +768,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
               {loadingFiles && dropboxFiles.length === 0 && dropboxFolders.length === 0 ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">Loading files...</div>
               ) : dropboxFiles.length === 0 && dropboxFolders.length === 0 ? (
-                <div className="text-center py-8 text-gray-500 dark:text-gray-400">No image files found. Click "Refresh" to load files.</div>
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">No image files found. Click &quot;Refresh&quot; to load files.</div>
               ) : (
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1 min-h-0 flex flex-col">
                   <div className="flex-1 overflow-y-auto">
@@ -871,7 +870,9 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
                                     className="w-12 h-12 object-cover rounded border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-80 transition-opacity"
                                     onError={(e) => {
                                       // Hide broken images
-                                      (e.target as HTMLImageElement).style.display = 'none';
+                                      if (isHTMLImageElement(e.target)) {
+                                        e.target.style.display = 'none';
+                                      }
                                     }}
                                     onClick={async () => {
                                       // Get larger preview or download link
@@ -883,7 +884,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
                                           setPreviewImage({ url: previewUrl, name: file.name });
                                         }
                                       } catch (err) {
-                                        console.error('Failed to open preview:', err);
+                                        logger.error('Failed to open preview', err instanceof Error ? err : new Error(String(err)));
                                       }
                                     }}
                                   />
@@ -907,7 +908,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
                                       setPreviewImage({ url: previewUrl, name: file.name });
                                     }
                                   } catch (err) {
-                                    console.error('Failed to open preview:', err);
+                                    logger.error('Failed to open preview', err instanceof Error ? err : new Error(String(err)));
                                   }
                                 }}
                               >
@@ -968,7 +969,7 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
               {loadingFiles && googleDriveFiles.length === 0 ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">Loading files...</div>
               ) : googleDriveFiles.length === 0 ? (
-                <div className="text-center py-8 text-gray-500 dark:text-gray-400">No image files found. Click "Refresh" to load files.</div>
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">No image files found. Click &quot;Refresh&quot; to load files.</div>
               ) : (
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1 min-h-0 flex flex-col">
                   <div className="flex-1 overflow-y-auto">
@@ -1066,7 +1067,8 @@ export default function FileBrowser({ onFilesAdded, onCloudUrlsAdded, initialTab
                 alt={previewImage.name}
                 className="max-w-full max-h-[70vh] object-contain rounded"
                 onError={(e) => {
-                  const target = e.target as HTMLImageElement;
+                  if (!isHTMLImageElement(e.target)) return;
+                  const target = e.target;
                   target.src = '';
                   target.alt = 'Failed to load preview';
                   target.className = 'p-8 text-gray-400';

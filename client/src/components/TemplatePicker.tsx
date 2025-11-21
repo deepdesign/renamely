@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getTemplate } from '../lib/api';
 import type { TemplateInfo, TemplateVariant } from '../lib/types';
+import { logger } from '../lib/logger';
 import { 
   saveTemplate, 
   getSavedTemplates, 
@@ -46,7 +47,7 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
     setLoading(true);
     setError(null);
     try {
-      const data = await getTemplate(templateId) as any;
+      const data = await getTemplate(templateId);
       const variants: TemplateVariant[] = [];
       
           // Variant structure per official API docs:
@@ -55,7 +56,7 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
           // - imagePlaceholders[] with name, printArea, height, width
           if (data.variants && Array.isArray(data.variants)) {
             for (const variant of data.variants) {
-              const placeholders = (variant.imagePlaceholders || []).map((p: any) => ({
+              const placeholders = (variant.imagePlaceholders || []).map((p) => ({
                 name: p.name || '',
                 size: p.height && p.width ? {
                   width: p.width,
@@ -64,9 +65,11 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
                 } : undefined,
               }));
 
+              const variantId = variant.id || '';
+              const variantName = variant.title || variantId || 'Unnamed Variant';
               variants.push({
-                id: variant.id || '',
-                name: variant.title || variant.id, // Use 'title' per API docs
+                id: variantId,
+                name: variantName,
                 placeholders,
               });
             }
@@ -76,10 +79,10 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
       // Official docs: https://dashboard.gelato.com/docs/ecommerce/templates/get/
       // Response includes: templateName (string) - Template name
       // Also available: title (string) - Product title
-      const templateName = 
-        data.templateName ||            // Official field per API docs
-        data.title ||                   // Product title (fallback)
-        `Template ${templateId}`;        // Final fallback
+      const templateName: string = 
+        (data.templateName && typeof data.templateName === 'string' ? data.templateName : null) ||
+        (data.title && typeof data.title === 'string' ? data.title : null) ||
+        `Template ${templateId}`;
 
       const template: TemplateInfo = {
         id: templateId,
@@ -116,7 +119,7 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
     try {
       const savedTemplateFromSession = sessionStorage.getItem('podmate_template');
       if (savedTemplateFromSession) {
-        const parsed = JSON.parse(savedTemplateFromSession);
+        const parsed = JSON.parse(savedTemplateFromSession) as TemplateInfo;
         if (parsed.id === lastTemplateId) {
           // Template already loaded, skip API call
           setLoadedTemplates([parsed]);
@@ -164,7 +167,7 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
 
       for (const id of ids) {
         try {
-          const data = await getTemplate(id) as any;
+          const data = await getTemplate(id);
           
           // Extract template structure from Gelato response
           // TODO: Map exact fields from official Gelato Get Template response schema
@@ -177,7 +180,7 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
           // - imagePlaceholders[] with name, printArea, height, width
           if (data.variants && Array.isArray(data.variants)) {
             for (const variant of data.variants) {
-              const placeholders = (variant.imagePlaceholders || []).map((p: any) => ({
+              const placeholders = (variant.imagePlaceholders || []).map((p) => ({
                 name: p.name || '',
                 size: p.height && p.width ? {
                   width: p.width,
@@ -186,9 +189,11 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
                 } : undefined,
               }));
 
+              const variantId = variant.id || '';
+              const variantName = variant.title || variantId || 'Unnamed Variant';
               variants.push({
-                id: variant.id || '',
-                name: variant.title || variant.id, // Use 'title' per API docs
+                id: variantId,
+                name: variantName,
                 placeholders,
               });
             }
@@ -219,7 +224,7 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
           
           templates.push(template);
         } catch (err) {
-          console.error(`Failed to load template ${id}:`, err);
+          logger.error(`Failed to load template ${id}`, err instanceof Error ? err : new Error(String(err)), { templateId: id });
           setError(`Failed to load template ${id}: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
       }
@@ -343,7 +348,7 @@ export default function TemplatePicker({ onTemplatesLoaded }: TemplatePickerProp
               </div>
             ))}
             <p className="text-xs text-green-700 dark:text-green-300 mt-2">
-              Click "Next →" to continue to the next step.
+              Click &quot;Next →&quot; to continue to the next step.
             </p>
           </div>
         )}

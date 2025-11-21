@@ -2,6 +2,7 @@
 
 import { db } from '../store/db';
 import type { Theme, WordBank, Preset } from '../store/db';
+import { logger } from '../../lib/logger';
 
 // Artistic theme - creative, poetic, aesthetic words
 const ARTISTIC_ADJECTIVES: string[] = [
@@ -736,7 +737,7 @@ export async function loadDefaultPresets(): Promise<void> {
   }
   
   if (addedCount > 0 || updatedCount > 0) {
-    console.log(`Added ${addedCount} new default preset(s), updated ${updatedCount} existing default preset(s)`);
+    logger.info(`Added ${addedCount} new default preset(s), updated ${updatedCount} existing default preset(s)`, { added: addedCount, updated: updatedCount });
   }
 }
 

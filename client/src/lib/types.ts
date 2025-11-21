@@ -67,3 +67,57 @@ export type ProductCreationResult = {
   createdAt?: number; // Timestamp when product was created/uploaded
 };
 
+// API Response Types
+export type CreateFromTemplateResponse = {
+  id: string;
+  previewUrl?: string;
+  adminUrl?: string;
+  externalId?: string;
+  status?: string;
+  [key: string]: unknown; // Allow additional properties from API
+};
+
+export type ProductStatusResponse = {
+  status: string;
+  isReadyToPublish?: boolean;
+  variants?: Array<{
+    id?: string;
+    title?: string;
+    status?: string;
+    [key: string]: unknown;
+  }>;
+  productImages?: Array<{
+    id?: string;
+    url?: string;
+    [key: string]: unknown;
+  }>;
+  previewUrl?: string;
+  adminUrl?: string;
+  title?: string;
+  description?: string;
+  templateId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  [key: string]: unknown; // Allow additional properties from API
+};
+
+export type GetTemplateResponse = {
+  id: string;
+  name?: string;
+  variants: Array<{
+    id: string;
+    name?: string;
+    imagePlaceholders?: Array<{
+      name: string;
+      size?: {
+        width?: number;
+        height?: number;
+        unit?: string;
+      };
+      [key: string]: unknown;
+    }>;
+    [key: string]: unknown;
+  }>;
+  [key: string]: unknown; // Allow additional properties from API
+};
+

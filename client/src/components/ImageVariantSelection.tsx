@@ -62,7 +62,7 @@ export default function ImageVariantSelection({
           Template: {template.name}
         </h2>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          All variants are selected by default. Click "Customize Variants" to change selection.
+          All variants are selected by default. Click &quot;Customize Variants&quot; to change selection.
         </p>
       </div>
 

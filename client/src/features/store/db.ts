@@ -1,4 +1,5 @@
 import Dexie, { Table } from 'dexie';
+import { logger } from '../../lib/logger';
 
 // Settings
 export interface Settings {
@@ -164,14 +165,14 @@ export async function initializeDB(): Promise<void> {
       });
     }
   } catch (error) {
-    console.error('Database initialization error:', error);
+    logger.error('Database initialization error', error instanceof Error ? error : new Error(String(error)));
     // If there's a database error, try to handle it gracefully
     // For migration errors or corrupted databases, we might need to delete and recreate
     if (error instanceof Error) {
       const errorName = error.name || '';
       // Check for common Dexie errors that might require database reset
       if (errorName.includes('Database') || errorName.includes('Version') || errorName.includes('Constraint')) {
-        console.warn('Database error detected, attempting to reset...');
+        logger.warn('Database error detected, attempting to reset...', { errorName });
         try {
           await db.delete();
           await db.open();
@@ -187,9 +188,9 @@ export async function initializeDB(): Promise<void> {
             highContrast: false,
             updatedAt: new Date().toISOString(),
           });
-          console.log('Database reset successful');
+          logger.info('Database reset successful');
         } catch (retryError) {
-          console.error('Failed to reset database:', retryError);
+          logger.error('Failed to reset database', retryError instanceof Error ? retryError : new Error(String(retryError)));
           // Don't throw - allow the app to continue with degraded functionality
         }
       } else {

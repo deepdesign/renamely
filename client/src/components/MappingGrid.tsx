@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, memo } from 'react';
 import type { TemplateInfo, UploadedFile, VariantAssignment } from '../lib/types';
 
 type MappingGridProps = {
@@ -9,7 +9,7 @@ type MappingGridProps = {
   onMappingChange: (mapping: Map<string, VariantAssignment>) => void;
 };
 
-export default function MappingGrid({
+const MappingGrid = memo(function MappingGrid({
   templates,
   uploadedFiles,
   selectedVariants,
@@ -146,7 +146,7 @@ export default function MappingGrid({
                   {selectedVariants.includes(variant.id) && (
                     <div className="space-y-2 ml-6">
                       {variant.placeholders.map((placeholder) => {
-                        const _key = `${template.id}:${variant.id}:${placeholder.name}`;
+                        // Removed unused _key variable
                         const currentMapping = mapping.get(`${template.id}:${variant.id}`);
                         const assignedFile = currentMapping?.imagePlaceholders.find(
                           p => p.name === placeholder.name
@@ -230,5 +230,7 @@ export default function MappingGrid({
       </div>
     </div>
   );
-}
+});
+
+export default MappingGrid;
 

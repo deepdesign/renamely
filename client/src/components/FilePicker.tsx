@@ -1,9 +1,12 @@
-import React, { useCallback, useEffect, useState, forwardRef } from 'react';
+import React, { useCallback, useEffect, useState, forwardRef, memo } from 'react';
 import { FolderOpen, Loader2, FileImage, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from './ui/Button';
 import { selectDirectory, selectImageFiles, scanDirectory, createThumbnailUrl } from '../features/files/fs-api';
 import { useAppStore } from '../features/store/slices';
 import type { ImageFile } from '../features/store/slices';
+import { logger } from '../lib/logger';
+import { validateFileSize, validateBatchSize, DEFAULT_MAX_FILE_SIZE, validateFileType } from '../lib/validators';
+import { isFileSystemDirectoryHandle, isFileSystemFileHandle, isHTMLElement } from '../lib/type-guards';
 
 interface ScannedImage {
   id: string;
@@ -24,11 +27,16 @@ export interface FilePickerRef {
   isLoading: boolean;
 }
 
+/**
+ * Props for the FilePicker component
+ * 
+ * @interface FilePickerProps
+ */
 interface FilePickerProps {
   onSelectionChange?: (selectedCount: number, scannedCount: number) => void;
 }
 
-export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelectionChange }, ref) => {
+const FilePickerComponent = forwardRef<FilePickerRef, FilePickerProps>(({ onSelectionChange }, ref) => {
   const {
     setSelectedDirectory,
     setImages,
@@ -38,7 +46,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
   const [error, setError] = useState<string | null>(null);
   const [scannedImages, setScannedImages] = useState<ScannedImage[]>([]);
   const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
-  const [selectedDirectoryHandle, setSelectedDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  // Removed unused selectedDirectoryHandle state
   const [lastDirectoryHandle, setLastDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [sortColumn, setSortColumn] = useState<'name' | 'size' | 'modified' | null>(null);
@@ -59,10 +67,9 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
       }
 
       // Store the directory handle for next time
-      setLastDirectoryHandle(dirHandle as any);
+      setLastDirectoryHandle(dirHandle);
 
-      setSelectedDirectory(dirHandle as any);
-      setSelectedDirectoryHandle(dirHandle as any);
+      setSelectedDirectory(dirHandle);
 
       // Scan for images
       const fileEntries = await scanDirectory(dirHandle, true);
@@ -79,7 +86,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
           images.push({
             id: `${Date.now()}-${Math.random()}`,
             file,
-            fileHandle: entry.handle as any,
+            fileHandle: entry.handle,
             path: entry.path,
             originalName: file.name,
             extension,
@@ -87,8 +94,8 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
             size: file.size,
             lastModified: file.lastModified,
           });
-        } catch (err: any) {
-          console.error('Error processing file:', err);
+        } catch (err: unknown) {
+          logger.error('Error processing file', err instanceof Error ? err : new Error(String(err)));
         }
       }
 
@@ -96,66 +103,15 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
       const allSelected = new Set(images.map(img => img.id));
       setSelectedImageIds(allSelected);
       onSelectionChange?.(allSelected.size, images.length);
-    } catch (err: any) {
-      setError(err.message || 'Failed to select directory');
-      console.error('Error selecting directory:', err);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error.message || 'Failed to select directory');
+      logger.error('Error selecting directory', error);
     } finally {
       setIsLoading(false);
     }
   }, [setSelectedDirectory, lastDirectoryHandle, onSelectionChange]);
 
-  const _handleSelectImages = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      // Use last directory handle if available
-      const fileHandles = await selectImageFiles(lastDirectoryHandle || undefined);
-      if (!fileHandles || fileHandles.length === 0) {
-        return;
-      }
-      
-      // If we got files from a directory, try to get the parent directory handle
-      // Note: This is a workaround - we can't directly get parent, but we can store
-      // the directory if the user selects a folder later
-
-      // Process files into scanned images
-      const images: ScannedImage[] = [];
-      for (const handle of fileHandles) {
-        try {
-          const file = await handle.getFile();
-          const extension = file.name.substring(file.name.lastIndexOf('.'));
-          
-          const thumbnailUrl = createThumbnailUrl(file);
-
-          images.push({
-            id: `${Date.now()}-${Math.random()}`,
-            file,
-            fileHandle: handle as any,
-            path: file.name,
-            originalName: file.name,
-            extension,
-            thumbnailUrl,
-            size: file.size,
-            lastModified: file.lastModified,
-          });
-        } catch (err: any) {
-          console.error('Error processing file:', err);
-        }
-      }
-
-      setScannedImages(images);
-      const allSelected = new Set(images.map(img => img.id));
-      setSelectedImageIds(allSelected);
-      setSelectedDirectoryHandle(null);
-      onSelectionChange?.(allSelected.size, images.length);
-    } catch (err: any) {
-      setError(err.message || 'Failed to select images');
-      console.error('Error selecting images:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [lastDirectoryHandle, onSelectionChange]);
 
   const handleConfirmSelection = useCallback(async () => {
     if (selectedImageIds.size === 0) {
@@ -188,9 +144,10 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
       setImages(images);
       setScannedImages([]);
       setSelectedImageIds(new Set());
-    } catch (err: any) {
-      setError(err.message || 'Failed to process images');
-      console.error('Error processing images:', err);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error.message || 'Failed to process images');
+      logger.error('Error processing images', error);
     } finally {
       setIsLoading(false);
     }
@@ -281,7 +238,8 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
 
     const handleDrop = (e: DragEvent) => {
       // Check if drop is happening in our drop zone
-      const target = e.target as HTMLElement;
+      if (!isHTMLElement(e.target)) return;
+      const target = e.target;
       if (dropZoneRef.current && (dropZoneRef.current.contains(target) || dropZoneRef.current === target)) {
         // Let the drop zone handle it - don't prevent
         return;
@@ -338,16 +296,51 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
       setIsLoading(true);
       setError(null);
 
-      // Filter to image files only
-      const imageFiles = files.filter(file => {
-        const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-        return ['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif', '.heic', '.gif'].includes(ext);
-      });
+      // Filter and validate image files (both extension and MIME type)
+      const imageFiles: File[] = [];
+      const invalidFiles: string[] = [];
+      
+      for (const file of files) {
+        const typeValidation = validateFileType(file);
+        if (typeValidation.valid) {
+          imageFiles.push(file);
+        } else {
+          invalidFiles.push(file.name);
+          if (typeValidation.error) {
+            logger.warn('Invalid file type', { fileName: file.name, error: typeValidation.error });
+          }
+        }
+      }
 
       if (imageFiles.length === 0) {
-        setError('No image files found. Please select image files (jpg, png, webp, etc.)');
+        const errorMsg = invalidFiles.length > 0
+          ? `No valid image files found. Invalid files: ${invalidFiles.join(', ')}`
+          : 'No image files found. Please select image files (jpg, png, webp, etc.)';
+        setError(errorMsg);
         setIsLoading(false);
         return;
+      }
+      
+      if (invalidFiles.length > 0) {
+        logger.info(`Filtered out ${invalidFiles.length} invalid file(s)`, { invalidFiles });
+      }
+
+      // Validate batch size
+      const batchValidation = validateBatchSize(imageFiles);
+      if (!batchValidation.valid) {
+        setError(batchValidation.error || 'Batch size validation failed');
+        setIsLoading(false);
+        return;
+      }
+
+      // Validate individual file sizes
+      for (const file of imageFiles) {
+        const fileValidation = validateFileSize(file, DEFAULT_MAX_FILE_SIZE);
+        if (!fileValidation.valid) {
+          setError(fileValidation.error || `File "${file.name}" validation failed`);
+          setIsLoading(false);
+          return;
+        }
       }
 
       // Process files into scanned images
@@ -365,7 +358,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
         images.push({
           id: uniqueId,
           file,
-          fileHandle: file as any, // Store file directly - will need special handling for rename
+          fileHandle: null, // Files from input don't have handles - will need destination folder
           path: file.name,
           originalName: file.name,
           extension,
@@ -378,11 +371,11 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
       setScannedImages(images);
       const allSelected = new Set(images.map(img => img.id));
       setSelectedImageIds(allSelected);
-      setSelectedDirectoryHandle(null);
       onSelectionChange?.(allSelected.size, images.length);
-    } catch (err: any) {
-      setError(err.message || 'Failed to process files');
-      console.error('Error processing files:', err);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error.message || 'Failed to process files');
+      logger.error('Error processing files', error);
     } finally {
       setIsLoading(false);
     }
@@ -415,26 +408,28 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
           
           if (item.kind === 'file') {
             try {
+              // DataTransferItem.getAsFileSystemHandle() is not in standard types but exists in some browsers
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const handle = await (item as any).getAsFileSystemHandle();
               if (handle) {
-                if (handle.kind === 'directory') {
+                if (isFileSystemDirectoryHandle(handle)) {
                   // Store the directory handle (take the first one if multiple)
                   if (!directoryHandle) {
-                    directoryHandle = handle as FileSystemDirectoryHandle;
+                    directoryHandle = handle;
                   }
-                } else if (handle.kind === 'file') {
+                } else if (isFileSystemFileHandle(handle)) {
                   // It's a file handle
-                  fileHandles.push(handle as FileSystemFileHandle);
+                  fileHandles.push(handle);
                 }
               }
-            } catch (err: any) {
+            } catch (err: unknown) {
               // If getAsFileSystemHandle fails, try to get the file directly
               try {
                 const file = item.getAsFile();
                 if (file) {
                   filesFromItems.push(file);
                 }
-              } catch (fileErr: any) {
+              } catch {
                 // Ignore - will fall back to dataTransfer.files
               }
             }
@@ -445,7 +440,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
               if (file) {
                 filesFromItems.push(file);
               }
-            } catch (fileErr: any) {
+            } catch {
               // Ignore - will fall back to dataTransfer.files
             }
           }
@@ -456,7 +451,9 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
           setIsLoading(true);
           try {
             // Request readwrite permission
-            const permission = await (directoryHandle as any).requestPermission?.({ mode: 'readwrite' });
+            // requestPermission is not in standard types but exists in some browsers
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const permission = await (directoryHandle as unknown as { requestPermission?: (options: { mode: string }) => Promise<string> }).requestPermission?.({ mode: 'readwrite' });
             if (permission !== 'granted') {
               setError('Permission denied. Please grant read/write access to the folder.');
               setIsLoading(false);
@@ -465,7 +462,6 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
 
             // Set the directory
             setSelectedDirectory(directoryHandle);
-            setSelectedDirectoryHandle(directoryHandle);
 
             // Scan the directory for images
             const { scanDirectory } = await import('../features/files/fs-api');
@@ -473,16 +469,45 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
 
             // Process files into scanned images
             const images: ScannedImage[] = [];
+            const filesToValidate: File[] = [];
+            
             for (const entry of fileEntries) {
               try {
                 const file = await entry.handle.getFile();
+                filesToValidate.push(file);
+              } catch (err: unknown) {
+                logger.error('Error getting file from handle', err instanceof Error ? err : new Error(String(err)));
+              }
+            }
+
+            // Validate batch size
+            const batchValidation = validateBatchSize(filesToValidate);
+            if (!batchValidation.valid) {
+              setError(batchValidation.error || 'Batch size validation failed');
+              setIsLoading(false);
+              return;
+            }
+
+            // Process and validate individual files
+            for (let i = 0; i < fileEntries.length; i++) {
+              const entry = fileEntries[i];
+              const file = filesToValidate[i];
+              
+              try {
+                // Validate file size
+                const fileValidation = validateFileSize(file, DEFAULT_MAX_FILE_SIZE);
+                if (!fileValidation.valid) {
+                  logger.warn(`Skipping file "${file.name}": ${fileValidation.error}`);
+                  continue; // Skip this file but continue with others
+                }
+
                 const extension = file.name.substring(file.name.lastIndexOf('.'));
                 const thumbnailUrl = createThumbnailUrl(file);
 
                 images.push({
                   id: `${Date.now()}-${Math.random()}`,
                   file,
-                  fileHandle: entry.handle as any,
+                  fileHandle: entry.handle,
                   path: entry.path,
                   originalName: file.name,
                   extension,
@@ -490,8 +515,8 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
                   size: file.size,
                   lastModified: file.lastModified,
                 });
-              } catch (err: any) {
-                console.error('Error processing file:', err);
+              } catch (err: unknown) {
+                logger.error('Error processing file', err instanceof Error ? err : new Error(String(err)));
               }
             }
 
@@ -537,9 +562,10 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
       if (droppedFiles.length > 0) {
         await processFiles(droppedFiles);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to process dropped items');
-      console.error('Error processing drop:', err);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error.message || 'Failed to process dropped items');
+      logger.error('Error processing drop', error);
       setIsLoading(false);
     }
   }, [isLoading, processFiles, setSelectedDirectory, onSelectionChange]);
@@ -566,11 +592,15 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
         onChange={handleFileInputChange}
         className="hidden"
         id="file-upload-input"
+        aria-label="Select image files"
       />
       
       {/* Selection Area */}
       <div
         ref={dropZoneRef}
+        role="region"
+        aria-label="File drop zone"
+        aria-describedby="drop-zone-description"
         className={`flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-lg transition-all cursor-pointer ${
           scannedImages.length === 0 ? 'flex-1 min-h-0' : ''
         } ${
@@ -585,7 +615,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
         onClick={() => fileInputRef.current?.click()}
       >
         <div className="flex flex-col items-center text-center mb-3 w-full">
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          <p id="drop-zone-description" className="text-sm text-gray-600 dark:text-gray-400 mb-3">
             {isDragOver ? 'Drop images or folder here' : 'Drag and drop images or a folder here, or click to browse'}
           </p>
         </div>
@@ -604,15 +634,16 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
             }}
             disabled={isLoading}
             size="sm"
+            aria-label="Browse and select image files from your computer"
           >
             {isLoading ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />
                 Loading...
               </>
             ) : (
               <>
-                <FileImage className="w-4 h-4 mr-2" />
+                <FileImage className="w-4 h-4 mr-2" aria-hidden="true" />
                 Browse images
               </>
             )}
@@ -625,8 +656,9 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
             }}
             disabled={isLoading}
             size="sm"
+            aria-label="Select folder containing images"
           >
-            <FolderOpen className="w-4 h-4 mr-2" />
+            <FolderOpen className="w-4 h-4 mr-2" aria-hidden="true" />
             Select folder
           </Button>
         </div>
@@ -650,16 +682,17 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
                     selectAllImages();
                   }
                 }}
+                aria-label={selectedImageIds.size === scannedImages.length ? 'Deselect all images' : 'Select all images'}
               >
                 {selectedImageIds.size === scannedImages.length ? 'Deselect All' : 'Select All'}
               </Button>
               <Button
                 variant="outline"
                 size="sm"
+                aria-label="Clear selection and start over"
                 onClick={() => {
                   setScannedImages([]);
                   setSelectedImageIds(new Set());
-                  setSelectedDirectoryHandle(null);
                 }}
               >
                 Clear
@@ -679,7 +712,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
                 </colgroup>
                 <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" scope="col">
                       <input
                         type="checkbox"
                         checked={selectedImageIds.size === scannedImages.length && scannedImages.length > 0}
@@ -691,20 +724,24 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
                           }
                         }}
                         className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600"
+                        aria-label={selectedImageIds.size === scannedImages.length ? 'Deselect all images' : 'Select all images'}
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Preview</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider" scope="col">Preview</th>
                     <th 
                       className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
                       onClick={() => handleSort('name')}
+                      scope="col"
+                      aria-sort={sortColumn === 'name' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      aria-label={`Sort by name ${sortColumn === 'name' && sortDirection === 'asc' ? 'descending' : 'ascending'}`}
                     >
                       <div className="flex items-center gap-1">
                         Name
                         {sortColumn === 'name' && (
                           sortDirection === 'asc' ? (
-                            <ChevronUp className="w-3 h-3" />
+                            <ChevronUp className="w-3 h-3" aria-hidden="true" />
                           ) : (
-                            <ChevronDown className="w-3 h-3" />
+                            <ChevronDown className="w-3 h-3" aria-hidden="true" />
                           )
                         )}
                       </div>
@@ -712,14 +749,17 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
                     <th 
                       className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
                       onClick={() => handleSort('size')}
+                      scope="col"
+                      aria-sort={sortColumn === 'size' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      aria-label={`Sort by size ${sortColumn === 'size' && sortDirection === 'asc' ? 'descending' : 'ascending'}`}
                     >
                       <div className="flex items-center gap-1">
                         Size
                         {sortColumn === 'size' && (
                           sortDirection === 'asc' ? (
-                            <ChevronUp className="w-3 h-3" />
+                            <ChevronUp className="w-3 h-3" aria-hidden="true" />
                           ) : (
-                            <ChevronDown className="w-3 h-3" />
+                            <ChevronDown className="w-3 h-3" aria-hidden="true" />
                           )
                         )}
                       </div>
@@ -727,14 +767,17 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
                     <th 
                       className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
                       onClick={() => handleSort('modified')}
+                      scope="col"
+                      aria-sort={sortColumn === 'modified' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      aria-label={`Sort by modified date ${sortColumn === 'modified' && sortDirection === 'asc' ? 'descending' : 'ascending'}`}
                     >
                       <div className="flex items-center gap-1">
                         Modified
                         {sortColumn === 'modified' && (
                           sortDirection === 'asc' ? (
-                            <ChevronUp className="w-3 h-3" />
+                            <ChevronUp className="w-3 h-3" aria-hidden="true" />
                           ) : (
-                            <ChevronDown className="w-3 h-3" />
+                            <ChevronDown className="w-3 h-3" aria-hidden="true" />
                           )
                         )}
                       </div>
@@ -753,6 +796,7 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
                           checked={selectedImageIds.has(image.id)}
                           onChange={() => toggleImageSelection(image.id)}
                           className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600"
+                          aria-label={`Select ${image.originalName} for renaming`}
                         />
                       </td>
                       <td className="px-4 py-3">
@@ -787,3 +831,8 @@ export const FilePicker = forwardRef<FilePickerRef, FilePickerProps>(({ onSelect
     </div>
   );
 });
+
+FilePickerComponent.displayName = 'FilePicker';
+
+export const FilePicker = memo(FilePickerComponent);
+FilePicker.displayName = 'FilePicker';

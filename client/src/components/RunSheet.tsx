@@ -1,8 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import type { ProductCreationResult } from '../lib/types';
+import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
+import type { ProductCreationResult, ProductStatusResponse } from '../lib/types';
 import { generateCSV, downloadCSV } from '../lib/validators';
 import { getProductStatus } from '../lib/api';
+import { logger } from '../lib/logger';
+import { isProductStatusResponse, isHTMLImageElement } from '../lib/type-guards';
 
+/**
+ * Props for the RunSheet component
+ * 
+ * @typedef {Object} RunSheetProps
+ */
 type RunSheetProps = {
   results: ProductCreationResult[];
   images?: Array<{ fileId: string; originalName?: string; publicUrl?: string; sourceType?: 'local' | 'dropbox' | 'googledrive' }>;
@@ -12,7 +19,7 @@ type RunSheetProps = {
   templateId?: string;
 };
 
-export default function RunSheet({ results, images, onRetry, onStatusUpdate, showExport = true, templateId }: RunSheetProps) {
+const RunSheet = memo(function RunSheet({ results, images, onRetry, onStatusUpdate, showExport = true, templateId }: RunSheetProps) {
   const [retryingIndex, setRetryingIndex] = useState<number | null>(null);
   const [checkingStatusIndex, setCheckingStatusIndex] = useState<number | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
@@ -54,7 +61,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
     }
     
     try {
-      const status = await getProductStatus(result.productId) as any;
+      const status = await getProductStatus(result.productId);
       
       // Update the result with latest status
       const variantsCount = Array.isArray(status.variants) ? status.variants.length : 0;
@@ -99,7 +106,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
         status: newStatus,
         error: statusMessage, // Update status message
         previewUrl: status.previewUrl || result.previewUrl,
-        adminUrl: status.adminUrl || status.externalId || result.adminUrl,
+        adminUrl: status.adminUrl || result.adminUrl,
       };
 
       if (onStatusUpdate) {
@@ -120,7 +127,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
         setExpandedRows(newExpanded);
       }
     } catch (err) {
-      console.error('Failed to check status:', err);
+      logger.error('Failed to check status', err instanceof Error ? err : new Error(String(err)));
       // Show error in status message
       const errorMessage = err instanceof Error ? err.message : 'Failed to check status';
       const updatedResult: ProductCreationResult = {
@@ -158,7 +165,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
         // 3. Haven't been checked recently
         if (!result.productId) return;
         
-        const response = result.responseReceived as any;
+        const response = isProductStatusResponse(result.responseReceived) ? result.responseReceived : undefined;
         const variantsCount = response && Array.isArray(response.variants) ? response.variants.length : 0;
         const isProcessing = result.status === 'warning' || 
                             result.status === 'pending' ||
@@ -171,7 +178,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
           // Only check if it's been at least MIN_TIME_BETWEEN_CHECKS since last check
           // and we're not already checking this one
           if (timeSinceLastCheck >= MIN_TIME_BETWEEN_CHECKS && !autoChecking.has(index) && checkingStatusIndex !== index) {
-            handleCheckStatus(index, true);
+            void handleCheckStatus(index, true);
           }
         }
       });
@@ -209,39 +216,49 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
     }
   };
 
-  // Calculate progress stats
-  const total = results.length;
-  const created = results.filter(r => r.productId && r.status !== 'error').length;
-  const completed = results.filter(r => {
-    if (!r.productId || r.status === 'error') return false;
-    const response = r.responseReceived as any;
-    if (!response) return false;
-    const variantsCount = Array.isArray(response.variants) ? response.variants.length : 0;
-    const productImagesCount = Array.isArray(response.productImages) ? response.productImages.length : 0;
-    // Consider complete if:
-    // 1. Status is ready (isReadyToPublish or status changed from "created")
-    // 2. AND variants are populated (indicates images processed)
-    const isReady = response.isReadyToPublish === true || (response.status !== 'created' && response.status !== undefined);
-    const hasVariants = variantsCount > 0;
-    const _hasImages = productImagesCount > 0;
-    // Complete ONLY if ready AND has variants - this ensures variants are actually connected
-    // Just having product images isn't enough - we need variants to be connected
-    return isReady && hasVariants;
-  }).length;
-  const errors = results.filter(r => r.status === 'error').length;
-  const processing = created - completed - errors;
-  const creationProgress = total > 0 ? (created / total) * 100 : 0;
-  const processingProgress = created > 0 ? (completed / created) * 100 : 0;
-  const allComplete = total > 0 && completed === total && errors === 0;
+  // Calculate progress stats - memoized to avoid recalculating on every render
+  const progressStats = useMemo(() => {
+    const total = results.length;
+    const created = results.filter(r => r.productId && r.status !== 'error').length;
+    const completed = results.filter(r => {
+      if (!r.productId || r.status === 'error') return false;
+      const response = isProductStatusResponse(r.responseReceived) ? r.responseReceived : undefined;
+      if (!response) return false;
+      const variantsCount = Array.isArray(response.variants) ? response.variants.length : 0;
+      // Consider complete if:
+      // 1. Status is ready (isReadyToPublish or status changed from "created")
+      // 2. AND variants are populated (indicates images processed)
+      const isReady = response.isReadyToPublish === true || (response.status !== 'created' && response.status !== undefined);
+      const hasVariants = variantsCount > 0;
+      // Removed unused _hasImages variable
+      // Complete ONLY if ready AND has variants - this ensures variants are actually connected
+      // Just having product images isn't enough - we need variants to be connected
+      return isReady && hasVariants;
+    }).length;
+    const errors = results.filter(r => r.status === 'error').length;
+    const processing = created - completed - errors;
+    const creationProgress = total > 0 ? (created / total) * 100 : 0;
+    const processingProgress = created > 0 ? (completed / created) * 100 : 0;
+    const allComplete = total > 0 && completed === total && errors === 0;
+    return { total, created, completed, errors, processing, creationProgress, processingProgress, allComplete };
+  }, [results]);
+  
+  const { total, created, completed, errors, processing, creationProgress, processingProgress, allComplete } = progressStats;
 
   return (
-    <div>
+    <div
+      role="region"
+      aria-label="Product creation results"
+      aria-live="polite"
+      aria-atomic="false"
+    >
       {showExport && (
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Results</h2>
           <button
             type="button"
             onClick={handleExport}
+            aria-label="Export results to CSV file"
             className="text-gray-900 bg-white border border-gray-300 hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 font-medium rounded-lg text-sm px-4 py-2 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:text-white dark:focus:ring-gray-700"
           >
             Export CSV
@@ -377,14 +394,14 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
               {images && images.some(img => img.sourceType === 'dropbox' || img.sourceType === 'googledrive') && (
                 <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
                   <p className="text-sm text-blue-900 dark:text-blue-300">
-                    <strong>✅ Safe to shutdown:</strong> Using cloud URLs (Dropbox/Google Drive). Gelato fetches images directly from the cloud. You can safely close this app immediately after submitting - processing continues on Gelato's servers.
+                    <strong>✅ Safe to shutdown:</strong> Using cloud URLs (Dropbox/Google Drive). Gelato fetches images directly from the cloud. You can safely close this app immediately after submitting - processing continues on Gelato&apos;s servers.
                   </p>
                 </div>
               )}
               {images && images.some(img => !img.sourceType || img.sourceType === 'local') && (
                 <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
                   <p className="text-sm text-yellow-900 dark:text-yellow-300">
-                    <strong>⚠️ Keep app running:</strong> Some images are from local uploads. Keep your computer and tunnel running until Gelato finishes downloading (check server logs for <code className="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">✅ GELATO FETCH DETECTED</code>). After that, processing continues on Gelato's servers.
+                    <strong>⚠️ Keep app running:</strong> Some images are from local uploads. Keep your computer and tunnel running until Gelato finishes downloading (check server logs for <code className="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">✅ GELATO FETCH DETECTED</code>). After that, processing continues on Gelato&apos;s servers.
                   </p>
                 </div>
               )}
@@ -417,6 +434,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
           <tbody>
             {results.map((result, index) => {
               const image = images?.[index];
+              const rowId = `result-row-${index}`;
               const isExpanded = expandedRows.has(index);
               
               // Truncate error/message for display
@@ -443,6 +461,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                 <>
                   <tr 
                     key={index}
+                    id={rowId}
                     className={`bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer ${index === results.length - 1 && !isExpanded ? 'border-b-0' : 'border-gray-200'}`}
                     onClick={() => {
                       const newExpanded = new Set(expandedRows);
@@ -453,6 +472,8 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                       }
                       setExpandedRows(newExpanded);
                     }}
+                    role="row"
+                    aria-label={`Result ${index + 1}: ${result.status}${result.productId ? ` - Product ${result.productId}` : ''}`}
                   >
                     <th scope="row" className="px-6 py-4 font-medium text-gray-900 dark:text-white break-words" style={{ wordBreak: 'break-word' }}>
                       <div className="flex items-center space-x-3">
@@ -471,7 +492,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                           <>
                             <div className="flex-shrink-0">
                               <img
-                                src={(image as any).thumbnailUrl || image.publicUrl || image.fileId}
+                                src={('thumbnailUrl' in image && typeof image.thumbnailUrl === 'string' ? image.thumbnailUrl : null) || image.publicUrl || image.fileId}
                                 alt={image.originalName || image.fileId}
                                 className="h-12 w-12 object-cover rounded-md border border-gray-300 dark:border-gray-600"
                               />
@@ -569,39 +590,40 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                     </td>
                   </tr>
                 {isExpanded && (
-                  <tr key={`${index}-details`} className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+                  <tr 
+                    key={`${index}-details`} 
+                    className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700"
+                    role="region"
+                    aria-labelledby={rowId}
+                  >
                     <td colSpan={2} className="px-6 py-4 break-words" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                       <div className="space-y-3 text-xs">
                         {/* Action Buttons at top of expanded row */}
                         <div className="flex gap-2 pb-3 border-b border-gray-200 dark:border-gray-700">
-                          {(() => {
-                            if (result.productId) {
-                              return (
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleCheckStatus(index, false);
-                                    }}
-                                    disabled={checkingStatusIndex === index || autoChecking.has(index)}
-                                    className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-4 py-2 text-center disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    {checkingStatusIndex === index ? 'Checking...' : autoChecking.has(index) ? 'Auto-checking...' : 'Check Status'}
-                                  </button>
-                                  {autoChecking.has(index) && (
-                                    <span className="text-xs text-gray-600 dark:text-gray-400 italic">
-                                      (Auto-checking every 3 min)
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            }
-                            return null;
-                          })()}
+                          {result.productId ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCheckStatus(index, false);
+                                }}
+                                disabled={checkingStatusIndex === index || autoChecking.has(index)}
+                                className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-4 py-2 text-center disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {checkingStatusIndex === index ? 'Checking...' : autoChecking.has(index) ? 'Auto-checking...' : 'Check Status'}
+                              </button>
+                              {autoChecking.has(index) && (
+                                <span className="text-xs text-gray-600 dark:text-gray-400 italic">
+                                  (Auto-checking every 3 min)
+                                </span>
+                              )}
+                            </div>
+                          ) : null}
                           {result.status === 'error' && (
                             <button
                               type="button"
+                              aria-label={`Retry product creation for ${image?.originalName || `item ${index + 1}`}`}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleRetry(index);
@@ -616,7 +638,8 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                         
                         {/* Diagnostic Messages - always visible when row is expanded */}
                         {result.responseReceived && typeof result.responseReceived === 'object' && result.responseReceived !== null && (() => {
-                          const response = result.responseReceived as any;
+                          const response = isProductStatusResponse(result.responseReceived) ? result.responseReceived : undefined;
+                          if (!response) return null;
                           const variants = Array.isArray(response.variants) ? response.variants : [];
                           const productImages = Array.isArray(response.productImages) ? response.productImages : [];
                           const variantsCount = variants.length;
@@ -652,7 +675,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                     <strong>⏳ Variants Created, Connecting...</strong> Gelato has created {variantsCount} variant{variantsCount !== 1 ? 's' : ''} but they're not fully connected yet.
                                     <br />
                                     <br />
-                                    <strong>What's happening:</strong>
+                                    <strong>What&apos;s happening:</strong>
                                     <ul className="list-disc list-inside mt-1 space-y-1">
                                       <li>Variants exist in Gelato ({variantsCount} variant{variantsCount !== 1 ? 's' : ''})</li>
                                       <li>But 0 variants are connected (as shown in Gelato dashboard)</li>
@@ -663,11 +686,11 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                     <strong>What to do:</strong>
                                     <ul className="list-disc list-inside mt-1 space-y-1">
                                       <li>Wait 10-30 minutes for variants to fully connect</li>
-                                      <li>Click <strong>"Check Status"</strong> periodically to see when `isReadyToPublish` becomes `true`</li>
+                                      <li>Click <strong>&quot;Check Status&quot;</strong> periodically to see when `isReadyToPublish` becomes `true`</li>
                                       <li>Once `isReadyToPublish: true`, all variants will be connected and ready</li>
                                     </ul>
                                     <br />
-                                    <strong className="text-blue-700 dark:text-blue-400">💡 You can safely close this app - processing continues on Gelato's servers!</strong>
+                                    <strong className="text-blue-700 dark:text-blue-400">💡 You can safely close this app - processing continues on Gelato&apos;s servers!</strong>
                                   </div>
                                 </div>
                               );
@@ -681,7 +704,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                     <strong>⏳ Processing in Early Stage:</strong> Gelato has received your product and is downloading/processing the images.
                                     <br />
                                     <br />
-                                    <strong>What's happening:</strong>
+                                    <strong>What&apos;s happening:</strong>
                                     <ul className="list-disc list-inside mt-1 space-y-1">
                                       <li>Gelato is fetching images from your server</li>
                                       <li>Large high-resolution files (50-100MB+) can take 30-60+ minutes to fully download and process</li>
@@ -703,7 +726,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                       <li>Check server logs for <code className="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">✅ GELATO FETCH DETECTED</code> - repeated fetches every minute indicate Gelato is actively working on it</li>
                                     </ul>
                                     <br />
-                                    <strong className="text-blue-700 dark:text-blue-400">💡 You can safely close this app - processing continues on Gelato's servers!</strong>
+                                    <strong className="text-blue-700 dark:text-blue-400">💡 You can safely close this app - processing continues on Gelato&apos;s servers!</strong>
                                   </div>
                                 </div>
                               );
@@ -725,7 +748,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                   Processing typically takes 5-10 minutes total. Click <strong>"Check Status"</strong> again in a few minutes to see updated progress.
                                   <br />
                                   <br />
-                                  <strong className="text-blue-700 dark:text-blue-400">💡 You can safely close this app - processing continues on Gelato's servers!</strong>
+                                  <strong className="text-blue-700 dark:text-blue-400">💡 You can safely close this app - processing continues on Gelato&apos;s servers!</strong>
                                 </div>
                               </div>
                             );
@@ -741,9 +764,9 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                   <br />
                                   <strong>Possible causes:</strong>
                                   <ul className="list-disc list-inside mt-1 space-y-1">
-                                    <li>Tunnel not accessible (if using ngrok/localtunnel - check it's still running)</li>
-                                    <li>Image URLs expired (your server's temporary URLs may have timed out)</li>
-                                    <li>Gelato can't reach your server (network/firewall issue)</li>
+                                    <li>Tunnel not accessible (if using ngrok/localtunnel - check it&apos;s still running)</li>
+                                    <li>Image URLs expired (your server&apos;s temporary URLs may have timed out)</li>
+                                    <li>Gelato can&apos;t reach your server (network/firewall issue)</li>
                                     <li>Image file corrupted or incomplete</li>
                                   </ul>
                                   <br />
@@ -752,7 +775,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                     <li>Check the "Image URL Sent" preview below - if it fails to load or shows black areas, the original file may be corrupted</li>
                                     <li>Check your server logs to see if Gelato attempted to fetch the images</li>
                                     <li>Verify your tunnel (if using one) is still active and accessible</li>
-                                    <li>Try clicking <strong>"Retry"</strong> to re-upload the product</li>
+                                    <li>Try clicking <strong>&quot;Retry&quot;</strong> to re-upload the product</li>
                                   </ul>
                                 </div>
                               </div>
@@ -798,7 +821,8 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                                     alt="Original uploaded image"
                                     className="max-w-xs max-h-48 border border-gray-300 dark:border-gray-600 rounded"
                                     onError={(e) => {
-                                      const target = e.target as HTMLImageElement;
+                                      if (!isHTMLImageElement(e.target)) return;
+                                      const target = e.target;
                                       target.style.display = 'none';
                                       const errorDiv = document.createElement('div');
                                       errorDiv.className = 'text-red-600 dark:text-red-400 text-sm p-2 bg-red-50 dark:bg-red-900/20 rounded';
@@ -821,35 +845,30 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
                             <span className="text-gray-500 dark:text-gray-400 ml-2">Not available</span>
                           )}
                         </div>
-                        {(() => {
-                          if (result.payloadSent) {
-                            return (
-                              <div key={`payload-${index}`}>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleSection(`payload-${index}`)}
-                                  className="flex items-center gap-2 text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                                >
-                                  <svg 
-                                    className={`w-4 h-4 transition-transform ${isSectionExpanded(`payload-${index}`) ? 'rotate-90' : ''}`}
-                                    fill="none" 
-                                    stroke="currentColor" 
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                  </svg>
-                                  <strong>Payload Sent to Gelato:</strong>
-                                </button>
-                                {isSectionExpanded(`payload-${index}`) && (
-                                  <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto">
-                                    {JSON.stringify(result.payloadSent, null, 2)}
-                                  </pre>
-                                )}
-                              </div>
-                            );
-                          }
-                          return null;
-                        })()}
+                        {result.payloadSent ? (
+                          <div key={`payload-${index}`}>
+                            <button
+                              type="button"
+                              onClick={() => toggleSection(`payload-${index}`)}
+                              className="flex items-center gap-2 text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                            >
+                              <svg 
+                                className={`w-4 h-4 transition-transform ${isSectionExpanded(`payload-${index}`) ? 'rotate-90' : ''}`}
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                              <strong>Payload Sent to Gelato:</strong>
+                            </button>
+                            {isSectionExpanded(`payload-${index}`) && (
+                              <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto">
+                                {JSON.stringify(result.payloadSent, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        ) : null}
                         {result.responseReceived ? (
                           <div>
                             <button
@@ -900,5 +919,7 @@ export default function RunSheet({ results, images, onRetry, onStatusUpdate, sho
       </div>
     </div>
   );
-}
+});
+
+export default RunSheet;
 

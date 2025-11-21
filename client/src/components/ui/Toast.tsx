@@ -23,7 +23,7 @@ export const Toast = React.forwardRef<HTMLLIElement, ToastProps>(
 
     return (
       <ToastPrimitive.Root
-        ref={ref as any}
+        ref={ref}
         className={cn(
           'rounded-md shadow-lg p-4 border',
           variants[variant],

@@ -11,7 +11,10 @@ import { loadDefaultWordBanks } from '../features/generation/wordBanks';
 import { loadDefaultThemes, loadDefaultPresets } from '../features/generation/themes';
 import { normalizeName, generateName, registerName, releaseNames } from '../features/generation/engine';
 import { createDirectory, moveFile, renameFile, selectDirectory } from '../features/files/fs-api';
+import { isFileSystemFileHandle } from '../lib/type-guards';
 import type { Preset, WordBank, Theme, AuditEntry, AuditBatch } from '../features/store/db';
+import { logger } from '../lib/logger';
+import { FileOperationError, ValidationError } from '../lib/errors';
 
 const STEPS = [
   { id: 1, name: 'Select images', description: 'Choose images to rename' },
@@ -260,7 +263,7 @@ export default function Home() {
   const filePickerRef = useRef<FilePickerRef>(null);
   const [selectedImageCount, setSelectedImageCount] = useState(0);
   const [isProcessingImages, setIsProcessingImages] = useState(false);
-  const [renameResult, setRenameResult] = useState<{ successCount: number; errorCount: number; batchId: string | null } | null>(null);
+  const [renameResult, setRenameResult] = useState<{ successCount: number; errorCount: number; batchId: string | null; message?: string } | null>(null);
   const isGeneratingNamesRef = useRef(false);
 
   // Initialize database and load defaults
@@ -300,14 +303,14 @@ export default function Home() {
         
         setIsInitialized(true);
       } catch (err) {
-        console.error('Initialization error:', err);
+        logger.error('Initialization error', err);
         const errorMessage = err instanceof Error ? err.message : String(err);
         setInitError(`Failed to initialize: ${errorMessage}. Please check the browser console for more details.`);
         setIsInitialized(true); // Still allow app to render so user can see the error
       }
     }
     
-    init();
+    void init();
   }, []);
 
   // Reload presets when entering step 3 or returning from settings
@@ -318,7 +321,7 @@ export default function Home() {
         setPresets(allPresets);
       }
     }
-    reloadPresets();
+    void reloadPresets();
   }, [currentStep, setPresets]);
 
   // Also reload when returning from settings (check for returnTo param)
@@ -333,7 +336,7 @@ export default function Home() {
         setSearchParams({ step: '3' }, { replace: true });
       }
     }
-    reloadFromSettings();
+    void reloadFromSettings();
   }, [searchParams, setPresets, setSearchParams]);
 
   // Generate names when theme and preset are selected and we have images
@@ -359,7 +362,7 @@ export default function Home() {
         return; // All images already have names
       }
 
-      console.log(`Generating names for ${imagesNeedingNames.length} images...`);
+      logger.info(`Generating names for ${imagesNeedingNames.length} images`, { count: imagesNeedingNames.length });
       isGeneratingNamesRef.current = true;
 
       try {
@@ -372,13 +375,13 @@ export default function Home() {
         if (currentThemeValue) {
           const beforeFilter = allWordBanks.length;
           allWordBanks = allWordBanks.filter(b => b.themeId && b.themeId === currentThemeValue.id);
-          console.log(`Filtered word banks for theme "${currentThemeValue.id}": ${beforeFilter} -> ${allWordBanks.length}`);
-          console.log(`Word bank IDs: ${allWordBanks.map(b => `${b.id} (${b.themeId})`).join(', ')}`);
+          logger.info(`Filtered word banks for theme "${currentThemeValue.id}"`, { before: beforeFilter, after: allWordBanks.length, themeId: currentThemeValue.id });
+          logger.debug(`Word bank IDs: ${allWordBanks.map(b => `${b.id} (${b.themeId})`).join(', ')}`);
           
           // Verify all word banks belong to the selected theme
           const wrongThemeBanks = allWordBanks.filter(b => b.themeId !== currentThemeValue.id);
           if (wrongThemeBanks.length > 0) {
-            console.error(`Found ${wrongThemeBanks.length} word banks with wrong theme:`, wrongThemeBanks.map(b => `${b.id} (theme: ${b.themeId})`));
+            logger.error(`Found ${wrongThemeBanks.length} word banks with wrong theme`, { wrongBanks: wrongThemeBanks.map(b => `${b.id} (theme: ${b.themeId})`) });
           }
         } else {
           // Even if no theme selected, exclude word banks without themeId
@@ -386,7 +389,7 @@ export default function Home() {
         }
 
         if (allWordBanks.length === 0) {
-          console.warn('No word banks available for the selected theme');
+          logger.warn('No word banks available for the selected theme', { themeId: currentThemeValue?.id });
           return;
         }
     
@@ -400,7 +403,7 @@ export default function Home() {
         // Re-check images haven't been cleared while we were processing
         const imagesToProcess = images;
         if (imagesToProcess.length === 0) {
-          console.warn('Images were cleared during name generation');
+          logger.warn('Images were cleared during name generation');
           return;
         }
         
@@ -427,7 +430,7 @@ export default function Home() {
             const fullSlug = `${generated.slug}${image.extension}`;
             if (currentUsedNames.has(fullSlug)) {
               // This should never happen with sequential processing, but be safe
-              console.warn(`Name collision detected for ${fullSlug}, regenerating...`);
+              logger.warn(`Name collision detected for ${fullSlug}, regenerating...`, { slug: fullSlug });
               // Regenerate with updated usedNames, usedAdjectives, and usedNouns sets
               const regenerated = await generateName({
                 preset: currentPresetValue,
@@ -461,8 +464,8 @@ export default function Home() {
               suggestedName: generated.name,
               currentName: generated.name,
             });
-          } catch (err: any) {
-            console.error('Error generating name for image:', err);
+          } catch (err: unknown) {
+            logger.error('Error generating name for image', err instanceof Error ? err : new Error(String(err)), { imageId: image.id });
             // Return original image if generation fails
             updatedImages.push(image);
           }
@@ -471,7 +474,7 @@ export default function Home() {
         // Final check: ensure images haven't been cleared
         const finalImages = images;
         if (finalImages.length === 0) {
-          console.warn('Images were cleared before updating - aborting update');
+          logger.warn('Images were cleared before updating - aborting update');
           return;
         }
 
@@ -479,17 +482,17 @@ export default function Home() {
         if (updatedImages.length === finalImages.length) {
           setImages(updatedImages);
         } else {
-          console.warn(`Image count mismatch: expected ${finalImages.length}, got ${updatedImages.length}`);
+          logger.warn(`Image count mismatch: expected ${finalImages.length}, got ${updatedImages.length}`, { expected: finalImages.length, actual: updatedImages.length });
           // Only update if we have some valid images - don't clear images if count is wrong
           if (updatedImages.length > 0 && updatedImages.length === finalImages.length) {
             setImages(updatedImages);
           } else {
             // If count is wrong, something went wrong - keep original images
-            console.error(`Image count mismatch during name generation - keeping original ${finalImages.length} images`);
+            logger.error(`Image count mismatch during name generation - keeping original ${finalImages.length} images`, { expected: finalImages.length, actual: updatedImages.length });
           }
         }
-      } catch (err: any) {
-        console.error('Error generating image names:', err);
+      } catch (err: unknown) {
+        logger.error('Error generating image names', err instanceof Error ? err : new Error(String(err)));
         // Don't clear images on error - keep existing images
       } finally {
         isGeneratingNamesRef.current = false;
@@ -501,7 +504,7 @@ export default function Home() {
     // (names can be generated on step 2 if user goes back, or step 3 when template is selected)
     const imagesNeedNames = images.length > 0 && images.some(img => !img.suggestedName || !img.currentName);
     if (imagesNeedNames && currentTheme && currentPreset) {
-      generateImageNames();
+      void generateImageNames();
     }
   }, [currentTheme?.id, currentPreset?.id, images, currentStep, wordBanks, sessionUsedNames, settings, addUsedName, setImages]);
 
@@ -526,7 +529,7 @@ export default function Home() {
         }
 
         if (allWordBanks.length === 0) {
-          console.warn('No word banks available for the selected theme');
+          logger.warn('No word banks available for the selected theme', { themeId: currentTheme?.id });
           return;
         }
 
@@ -573,7 +576,7 @@ export default function Home() {
             const fullSlug = `${generated.slug}${image.extension}`;
             if (currentUsedNames.has(fullSlug)) {
               // This should never happen with sequential processing, but be safe
-              console.warn(`Name collision detected for ${fullSlug}, regenerating...`);
+              logger.warn(`Name collision detected for ${fullSlug}, regenerating...`, { slug: fullSlug });
               // Regenerate with updated usedNames, usedAdjectives, and usedNouns sets
               const regenerated = await generateName({
                 preset: currentPreset,
@@ -607,8 +610,8 @@ export default function Home() {
               suggestedName: generated.name,
               currentName: generated.name,
             });
-          } catch (err: any) {
-            console.error('Error regenerating name for image:', err);
+          } catch (err: unknown) {
+            logger.error('Error regenerating name for image', err instanceof Error ? err : new Error(String(err)), { imageId: image.id });
             // Return original image if generation fails
             updatedImages.push(image);
           }
@@ -618,8 +621,8 @@ export default function Home() {
         if (updatedImages.length === images.length) {
           setImages(updatedImages);
         }
-      } catch (err: any) {
-        console.error('Error regenerating image names:', err);
+      } catch (err: unknown) {
+        logger.error('Error regenerating image names', err instanceof Error ? err : new Error(String(err)));
       }
     };
 
@@ -656,11 +659,12 @@ export default function Home() {
           setProcessing(false);
           return;
         }
-        workingDirectory = destDir as any;
-        setSelectedDirectory(destDir as any);
+        workingDirectory = destDir;
+        setSelectedDirectory(destDir);
         userSelectedFolder = true; // User explicitly selected this folder - use it directly
-      } catch (err: any) {
-        addError('', `Failed to select destination folder: ${err.message}`);
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        addError('', `Failed to select destination folder: ${error.message}`);
         setProcessing(false);
         return;
       }
@@ -695,12 +699,12 @@ export default function Home() {
           const folderName = destinationOption === 'subfolder' ? subfolderName : siblingFolderName;
           // Sanitize folder name to prevent path separator issues
           const sanitizedFolderName = folderName.split(/[/\\]/).filter(Boolean).pop() || folderName;
-          destinationDir = await createDirectory(workingDirectory, sanitizedFolderName) as any;
+          destinationDir = await createDirectory(workingDirectory, sanitizedFolderName);
           destinationFolderName = sanitizedFolderName; // Use the created subfolder name
         }
       }
 
-      // Process each image
+      // Process each image with partial success handling
       for (let i = 0; i < images.length; i++) {
         const image = images[i];
         setProgress(i + 1, images.length);
@@ -721,7 +725,11 @@ export default function Home() {
 
         try {
           if (!image.currentName) {
-            throw new Error(`Image "${image.originalName}" has no generated name.`);
+            throw new ValidationError(
+              `Image "${image.originalName}" has no generated name`,
+              'imageName',
+              image.originalName
+            );
           }
 
           const newName = `${image.currentName}${image.extension}`;
@@ -737,23 +745,37 @@ export default function Home() {
           const isRealFileHandle = image.fileHandle && !(image.fileHandle instanceof File) && 'getFile' in image.fileHandle;
           
           // If we have a file handle with move() support and no destination directory, rename in place
-          if (isRealFileHandle && !destinationDir && image.fileHandle && 'move' in image.fileHandle) {
-            await renameFile(image.fileHandle as FileSystemFileHandle, newName);
+          if (isRealFileHandle && !destinationDir && image.fileHandle && isFileSystemFileHandle(image.fileHandle) && 'move' in image.fileHandle) {
+            await renameFile(image.fileHandle, newName);
             newPath = image.path.replace(image.originalName, newName);
           } else if (destinationDir && image.fileHandle) {
             // Move to destination directory (works with both FileSystemFileHandle and File objects)
             try {
-              await moveFile(image.fileHandle as any, destinationDir, newName);
+              await moveFile(image.fileHandle, destinationDir, newName);
               // Use the tracked destination folder name for path construction
               newPath = destinationFolderName ? `${destinationFolderName}/${newName}` : newName;
-            } catch (moveErr: any) {
-              console.error('Error moving file:', moveErr);
-              throw new Error(`Failed to move file to destination: ${moveErr.message}`);
+            } catch (moveErr: unknown) {
+              const error = moveErr instanceof Error ? moveErr : new Error(String(moveErr));
+              logger.error('Error moving file', error, { fileName: newName, destination: destinationFolderName });
+              throw new FileOperationError(
+                error.message,
+                'move',
+                newName,
+                { destination: destinationFolderName, originalError: error.message }
+              );
             }
           } else if (!image.fileHandle) {
-            throw new Error('Files selected via file input require a destination folder. Please select a folder first.');
+            throw new FileOperationError(
+              'Files selected via file input require a destination folder. Please select a folder first.',
+              'rename',
+              image.originalName
+            );
           } else {
-            throw new Error('Unable to rename file. Please ensure a destination folder is selected.');
+            throw new FileOperationError(
+              'Unable to rename file. Please ensure a destination folder is selected.',
+              'rename',
+              image.originalName
+            );
           }
 
           entries.push({
@@ -766,9 +788,10 @@ export default function Home() {
           });
 
           successCount++;
-        } catch (err: any) {
-          const errorMsg = err.message || 'Unknown error';
-          console.error(`Error processing image ${image.originalName}:`, err);
+        } catch (err: unknown) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          const errorMsg = error.message || 'Unknown error';
+          logger.error(`Error processing image ${image.originalName}`, error, { imageId: image.id, originalName: image.originalName });
           addError(image.id, errorMsg);
           
           entries.push({
@@ -785,7 +808,7 @@ export default function Home() {
         }
       }
 
-      // Save audit log
+      // Save audit log with partial success status
       const auditBatch: AuditBatch = {
         id: `audit-${Date.now()}`,
         batchId,
@@ -797,13 +820,24 @@ export default function Home() {
 
       await addAuditBatch(auditBatch);
       setLastBatchId(batchId);
-      setRenameResult({ successCount, errorCount, batchId });
+      
+      // Store results with detailed success/error information
+      setRenameResult({ 
+        successCount, 
+        errorCount, 
+        batchId,
+        // Include summary message for partial success
+        ...(errorCount > 0 && successCount > 0 ? {
+          message: `${successCount} file${successCount !== 1 ? 's' : ''} renamed successfully, ${errorCount} failed`
+        } : {})
+      });
 
       // Move to step 5 to show success summary
       setCurrentStep(5);
-    } catch (err: any) {
-      console.error('Batch rename error:', err);
-      const errorMsg = err.message || 'An unexpected error occurred during rename';
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Batch rename error', error);
+      const errorMsg = error.message || 'An unexpected error occurred during rename';
       addError('', errorMsg);
     } finally {
       setProcessing(false);

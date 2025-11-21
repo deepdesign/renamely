@@ -1,48 +1,117 @@
-// Name generation engine with templates, RNG, and collision detection
+/**
+ * Name generation engine with templates, RNG, and collision detection
+ * 
+ * This module provides functions for generating unique filenames based on templates,
+ * word banks, and collision detection using both session-level tracking and
+ * persistent IndexedDB storage.
+ */
 
 import { db } from '../store/db';
 import type { Preset, WordBank } from '../store/db';
 
+/**
+ * Options for name generation
+ */
 export interface NameGenerationOptions {
+  /** Preset configuration containing template, case style, delimiter, etc. */
   preset: Preset;
+  /** Word banks to use for adjective and noun selection */
   wordBanks: WordBank[];
+  /** Set of names already used in the current session (for collision detection) */
   usedNames: Set<string>;
-  usedAdjectives?: Set<string>; // Track adjectives used in current batch to avoid repetition
-  usedNouns?: Set<string>; // Track nouns used in current batch to avoid repetition
+  /** Optional: Track adjectives used in current batch to avoid repetition */
+  usedAdjectives?: Set<string>;
+  /** Optional: Track nouns used in current batch to avoid repetition */
+  usedNouns?: Set<string>;
+  /** File extension (e.g., '.jpg', '.png') */
   extension: string;
+  /** Maximum filename length (including extension) */
   maxLength: number;
+  /** Maximum number of retry attempts if collisions occur (default: 100) */
   maxRetries?: number;
 }
 
+/**
+ * Result of name generation
+ */
 export interface GeneratedName {
+  /** The generated filename (without extension) */
   name: string;
-  slug: string; // normalized for uniqueness checking
+  /** Normalized slug for uniqueness checking (lowercase, special chars replaced) */
+  slug: string;
 }
 
 // Valid filename characters (Windows-safe)
 const INVALID_CHARS = /[<>:"/\\|?*\x00-\x1F]/g;
 const INVALID_NAMES = new Set(['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9']);
 
-// RNG with seed support
+/**
+ * Seeded random number generator for deterministic name generation
+ * 
+ * Uses a linear congruential generator (LCG) algorithm to produce
+ * pseudo-random numbers from a seed. This ensures that the same seed
+ * produces the same sequence of random numbers, enabling reproducible
+ * name generation for testing and consistency.
+ * 
+ * @example
+ * ```typescript
+ * const rng = new SeededRNG(12345);
+ * const random1 = rng.next(); // Always the same for seed 12345
+ * const random2 = rng.nextInt(10); // Random integer 0-9
+ * ```
+ */
 export class SeededRNG {
   private seed: number;
 
+  /**
+   * Creates a new SeededRNG instance
+   * 
+   * @param seed - Optional seed value. If not provided, uses timestamp + random component
+   */
   constructor(seed?: number) {
     // Use a more unique seed if not provided - combine timestamp with random component
     this.seed = seed || Date.now() + Math.random() * 1000000;
   }
 
+  /**
+   * Generates the next random number in the sequence (0.0 to 1.0)
+   * 
+   * @returns A pseudo-random number between 0.0 (inclusive) and 1.0 (exclusive)
+   */
   next(): number {
     this.seed = (this.seed * 9301 + 49297) % 233280;
     return this.seed / 233280;
   }
 
+  /**
+   * Generates the next random integer in the sequence
+   * 
+   * @param max - Maximum value (exclusive)
+   * @returns A pseudo-random integer between 0 (inclusive) and max (exclusive)
+   */
   nextInt(max: number): number {
     return Math.floor(this.next() * max);
   }
 }
 
-// Normalize string for uniqueness checking
+/**
+ * Normalizes a name string according to the specified case style
+ * 
+ * Applies case transformation (Title, Sentence, lower, UPPER) and removes
+ * invalid characters. Handles legacy 'kebab' and 'snake' case styles by
+ * converting them to 'lower'.
+ * 
+ * @param name - The name string to normalize
+ * @param caseStyle - The case style to apply ('Title', 'Sentence', 'lower', 'UPPER', or legacy 'kebab'/'snake')
+ * @returns The normalized name string
+ * 
+ * @example
+ * ```typescript
+ * normalizeName('hello world', 'Title'); // Returns "Hello World"
+ * normalizeName('HELLO WORLD', 'lower'); // Returns "hello world"
+ * normalizeName('test-name', 'kebab'); // Returns "test-name" (treated as 'lower')
+ * ```
+ */
 export function normalizeName(name: string, caseStyle: Preset['caseStyle'] | string): string {
   let normalized = name;
 
@@ -73,17 +142,29 @@ export function normalizeName(name: string, caseStyle: Preset['caseStyle'] | str
   return normalized;
 }
 
-// Strip diacritics
-function _stripDiacritics(str: string): string {
-  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
+// Removed unused _stripDiacritics and _toASCII functions
 
-// Convert to ASCII-only
-function _toASCII(str: string): string {
-  return str.replace(/[^\x00-\x7F]/g, '');
-}
-
-// Validate filename
+/**
+ * Validates a filename for Windows compatibility and length constraints
+ * 
+ * Checks for:
+ * - Reserved Windows filenames (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+ * - Filename length (including extension) exceeding maxLength
+ * - Invalid characters (< > : " / \ | ? * and control characters)
+ * - Leading/trailing spaces or dots
+ * 
+ * @param name - The filename (without extension) to validate
+ * @param extension - The file extension (e.g., '.jpg')
+ * @param maxLength - Maximum total length including extension
+ * @returns Error message string if validation fails, null if valid
+ * 
+ * @example
+ * ```typescript
+ * validateFilename('my-file', '.jpg', 255); // Returns null (valid)
+ * validateFilename('CON', '.jpg', 255); // Returns "Reserved Windows filename"
+ * validateFilename('file<>name', '.jpg', 255); // Returns "Contains invalid characters"
+ * ```
+ */
 export function validateFilename(name: string, extension: string, maxLength: number): string | null {
   // Check reserved names
   const baseName = name.substring(0, name.lastIndexOf('.') || name.length);
@@ -110,7 +191,38 @@ export function validateFilename(name: string, extension: string, maxLength: num
   return null;
 }
 
-// Generate name from template
+/**
+ * Generates a unique filename based on a template pattern
+ * 
+ * This is the core name generation function that:
+ * 1. Selects random words from word banks based on the template
+ * 2. Applies case style, delimiter, prefix, suffix, and date stamp
+ * 3. Checks for collisions in both session-level tracking and IndexedDB
+ * 4. Retries with different word combinations if collisions occur
+ * 5. Falls back to counter-based naming if collisions persist
+ * 
+ * The function ensures uniqueness by:
+ * - Checking against `usedNames` Set (session-level)
+ * - Querying IndexedDB `nameLedger` table (persistent)
+ * - Using counter fallback if enabled in preset
+ * 
+ * @param options - Name generation options including preset, word banks, and constraints
+ * @returns Promise resolving to a GeneratedName object with name and slug
+ * @throws {Error} If word banks are insufficient or max retries exceeded
+ * 
+ * @example
+ * ```typescript
+ * const result = await generateName({
+ *   preset: myPreset,
+ *   wordBanks: [adjectiveBank, nounBank],
+ *   usedNames: new Set(),
+ *   extension: '.jpg',
+ *   maxLength: 255
+ * });
+ * console.log(result.name); // e.g., "Bright-Sky.jpg"
+ * console.log(result.slug); // e.g., "bright-sky"
+ * ```
+ */
 export async function generateName(options: NameGenerationOptions): Promise<GeneratedName> {
   const {
     preset,
@@ -393,9 +505,13 @@ export async function registerName(name: string, presetId?: string, locale?: str
       locale,
       released: false,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Ignore duplicate key errors (already registered)
-    if (err.name !== 'ConstraintError') {
+    if (err instanceof Error && err.name !== 'ConstraintError') {
+      throw err;
+    }
+    // If it's not an Error, rethrow it
+    if (!(err instanceof Error)) {
       throw err;
     }
   }

@@ -7,7 +7,16 @@ import { Lock, Unlock } from 'lucide-react';
 import { Button } from './ui/Button';
 import { cn } from '../lib/utils';
 import { createThumbnailUrl } from '../features/files/fs-api';
+import { logger } from '../lib/logger';
+import { isHTMLImageElement } from '../lib/type-guards';
+import { useKeyboardNavigation } from '../hooks';
 
+/**
+ * Props for the ImageGrid component
+ * 
+ * @interface ImageGridProps
+ * @property {() => void} [onRename] - Optional callback when rename operation is triggered
+ */
 interface ImageGridProps {
   onRename?: () => void;
 }
@@ -26,6 +35,53 @@ export function ImageGrid({}: ImageGridProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const listContainerRef = useRef<HTMLDivElement>(null);
   const [containerHeight, setContainerHeight] = useState(0);
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+
+  // Keyboard navigation
+  useKeyboardNavigation({
+    shortcuts: [
+      {
+        key: 'ArrowDown',
+        handler: () => {
+          if (focusedIndex === null) {
+            setFocusedIndex(0);
+          } else if (focusedIndex < images.length - 1) {
+            setFocusedIndex(focusedIndex + 1);
+          }
+        },
+        preventDefault: true,
+        enabled: editingId === null,
+      },
+      {
+        key: 'ArrowUp',
+        handler: () => {
+          if (focusedIndex !== null && focusedIndex > 0) {
+            setFocusedIndex(focusedIndex - 1);
+          }
+        },
+        preventDefault: true,
+        enabled: editingId === null,
+      },
+      {
+        key: 'Enter',
+        handler: () => {
+          if (focusedIndex !== null && images[focusedIndex]) {
+            setEditingId(images[focusedIndex].id);
+          }
+        },
+        preventDefault: true,
+        enabled: focusedIndex !== null && editingId === null,
+      },
+      {
+        key: 'Escape',
+        handler: () => {
+          setEditingId(null);
+        },
+        preventDefault: true,
+        enabled: editingId !== null,
+      },
+    ],
+  });
 
   // Measure list container height and update on resize
   useEffect(() => {
@@ -122,7 +178,7 @@ export function ImageGrid({}: ImageGridProps) {
         return newUrl;
       }
     } catch (err) {
-      console.error(`Failed to regenerate thumbnail URL for ${image.id}:`, err);
+      logger.error(`Failed to regenerate thumbnail URL for ${image.id}`, err instanceof Error ? err : new Error(String(err)), { imageId: image.id });
     }
     return null;
   }, []);
@@ -133,8 +189,18 @@ export function ImageGrid({}: ImageGridProps) {
     if (regeneratedUrls.has(image.id)) {
       return regeneratedUrls.get(image.id)!;
     }
-    // Otherwise use the stored thumbnail URL
-    return image.thumbnailUrl;
+    // Otherwise use the stored thumbnail URL, or generate one if missing
+    if (image.thumbnailUrl) {
+      return image.thumbnailUrl;
+    }
+    // Fallback: generate thumbnail URL from file if available
+    if (image.file) {
+      const url = createThumbnailUrl(image.file);
+      setRegeneratedUrls(prev => new Map(prev).set(image.id, url));
+      return url;
+    }
+    // Last resort: return empty string (will show broken image icon)
+    return '';
   }, [regeneratedUrls]);
 
   // Periodically check if images are still loading and regenerate if needed
@@ -154,7 +220,7 @@ export function ImageGrid({}: ImageGridProps) {
         // If image has error or is not displayed, try to regenerate
         if (imgElement && (imgElement.naturalWidth === 0 || imgElement.naturalHeight === 0)) {
           // Image failed to load, regenerate URL
-          regenerateThumbnailUrl(image).then(newUrl => {
+          void regenerateThumbnailUrl(image).then(newUrl => {
             if (newUrl && imgElement) {
               imgElement.src = newUrl;
             }
@@ -195,11 +261,17 @@ export function ImageGrid({}: ImageGridProps) {
   const listHeight = Math.max(0, containerHeight);
 
   return (
-    <div ref={rootRef} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex flex-col min-w-0 flex-1 min-h-0 max-h-full">
+    <div 
+      ref={rootRef} 
+      className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex flex-col min-w-0 flex-1 min-h-0 max-h-full"
+      role="region"
+      aria-label="Image grid"
+      aria-describedby="image-grid-description"
+    >
       {/* Toolbar */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-600 dark:text-gray-400">
+          <span id="image-grid-description" className="text-sm text-gray-600 dark:text-gray-400">
             {images.length} {images.length === 1 ? 'image' : 'images'}
           </span>
         </div>
@@ -223,8 +295,18 @@ export function ImageGrid({}: ImageGridProps) {
                   <div
                     className={cn(
                       'flex items-center gap-4 p-4 border-b border-gray-200 dark:border-gray-700 h-full min-w-full',
-                      'hover:bg-gray-50 dark:hover:bg-gray-800'
+                      'hover:bg-gray-50 dark:hover:bg-gray-800',
+                      focusedIndex === index && 'ring-2 ring-blue-500 dark:ring-blue-400'
                     )}
+                    tabIndex={focusedIndex === index ? 0 : -1}
+                    role="listitem"
+                    aria-label={`Image ${index + 1} of ${images.length}: ${image.originalName}`}
+                    onFocus={() => setFocusedIndex(index)}
+                    onBlur={() => {
+                      if (focusedIndex === index) {
+                        setFocusedIndex(null);
+                      }
+                    }}
                   >
                     {/* Thumbnail */}
                     <div className="flex-shrink-0">
@@ -243,17 +325,18 @@ export function ImageGrid({}: ImageGridProps) {
                           // If image fails to load, try to regenerate the thumbnail URL
                           if (!regeneratedUrls.has(image.id)) {
                             const newUrl = await regenerateThumbnailUrl(image);
-                            if (newUrl && e.target) {
-                              (e.target as HTMLImageElement).src = newUrl;
+                            if (newUrl && isHTMLImageElement(e.target)) {
+                              e.target.src = newUrl;
                             }
                           }
                         }}
                         onLoad={(e) => {
                           // Verify image actually loaded correctly
-                          const img = e.target as HTMLImageElement;
+                          if (!isHTMLImageElement(e.target)) return;
+                          const img = e.target;
                           if (img.naturalWidth === 0 || img.naturalHeight === 0) {
                             // Image is broken, regenerate
-                            regenerateThumbnailUrl(image).then(newUrl => {
+                            void regenerateThumbnailUrl(image).then(newUrl => {
                               if (newUrl) {
                                 img.src = newUrl;
                               }
@@ -295,11 +378,12 @@ export function ImageGrid({}: ImageGridProps) {
                             handleLockToggle(image.id, image.locked);
                           }}
                           title={image.locked ? 'Unlock name' : 'Lock name'}
+                          aria-label={image.locked ? `Unlock name for ${image.originalName}` : `Lock name for ${image.originalName}`}
                         >
                           {image.locked ? (
-                            <Lock className="w-4 h-4" />
+                            <Lock className="w-4 h-4" aria-hidden="true" />
                           ) : (
-                            <Unlock className="w-4 h-4" />
+                            <Unlock className="w-4 h-4" aria-hidden="true" />
                           )}
                         </Button>
                       </div>

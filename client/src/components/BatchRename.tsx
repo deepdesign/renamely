@@ -6,6 +6,7 @@ import { useAppStore } from '../features/store/slices';
 import { createDirectory, moveFile, renameFile, selectDirectory } from '../features/files/fs-api';
 import type { AuditEntry, AuditBatch } from '../features/store/db';
 import { registerName } from '../features/generation/engine';
+import { logger } from '../lib/logger';
 
 interface BatchRenameProps {
   onComplete?: () => void;
@@ -33,10 +34,10 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
   const [dryRun, setDryRun] = useState(false);
 
   const handleRename = useCallback(async () => {
-    console.log('handleRename called', { imagesCount: images.length, selectedDirectory: !!selectedDirectory });
+    logger.info('handleRename called', { imagesCount: images.length, selectedDirectory: !!selectedDirectory });
     
     if (images.length === 0) {
-      console.log('No images to rename');
+      logger.warn('No images to rename');
       addError('', 'No images selected. Please go back to step 1 to select images.');
       return;
     }
@@ -44,7 +45,7 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
     // Check if images have current names
     const imagesWithoutNames = images.filter(img => !img.currentName);
     if (imagesWithoutNames.length > 0) {
-      console.log('Some images missing currentName', imagesWithoutNames);
+      logger.warn('Some images missing currentName', { imagesWithoutNames: imagesWithoutNames.map(img => img.id) });
       addError('', `${imagesWithoutNames.length} image(s) have no generated name. Please go back to step 4 (Review & edit) to generate names.`);
       return;
     }
@@ -58,7 +59,7 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
     
     // If no directory is selected but we need one for destination folder, prompt user
     if (!selectedDirectory && !canRenameInPlace) {
-      console.log('No directory selected - need to prompt for destination');
+      logger.info('No directory selected - need to prompt for destination');
       try {
         setProcessing(true);
         clearErrors();
@@ -68,18 +69,19 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
           setProcessing(false);
           return;
         }
-        workingDirectory = destDir as any;
+        workingDirectory = destDir;
         // Update the store with the selected directory
-        setSelectedDirectory(destDir as any);
-      } catch (err: any) {
-        addError('', `Failed to select destination folder: ${err.message}`);
+        setSelectedDirectory(destDir);
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        addError('', `Failed to select destination folder: ${error.message}`);
         setProcessing(false);
         return;
       }
     }
 
     try {
-      console.log('Starting rename process...');
+      logger.info('Starting rename process', { imagesCount: images.length });
       setProcessing(true);
       clearErrors();
 
@@ -92,12 +94,12 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
       let destinationDir: FileSystemDirectoryHandle | null = null;
       if (workingDirectory) {
         if (destinationOption === 'subfolder') {
-          destinationDir = await createDirectory(workingDirectory, subfolderName) as any;
+          destinationDir = await createDirectory(workingDirectory, subfolderName);
         } else {
           // Create sibling folder
           // Note: File System Access API doesn't easily support parent directory access
           // This is a simplified version - in practice, you'd need to track parent
-          destinationDir = await createDirectory(workingDirectory, siblingFolderName) as any;
+          destinationDir = await createDirectory(workingDirectory, siblingFolderName);
         }
       }
 
@@ -140,8 +142,9 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
               try {
                 await renameFile(image.fileHandle, newName);
                 newPath = image.path.replace(image.originalName, newName);
-              } catch (renameErr: any) {
-                throw new Error(`Failed to rename file: ${renameErr.message}`);
+              } catch (renameErr: unknown) {
+                const error = renameErr instanceof Error ? renameErr : new Error(String(renameErr));
+                throw new Error(`Failed to rename file: ${error.message}`);
               }
             } else if (destinationDir && image.fileHandle) {
               // Move to destination directory if we have one
@@ -171,8 +174,9 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
           });
 
           successCount++;
-        } catch (err: any) {
-          const errorMsg = err.message || 'Unknown error';
+        } catch (err: unknown) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          const errorMsg = error.message || 'Unknown error';
           addError(image.id, errorMsg);
           
           entries.push({
@@ -205,9 +209,10 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
       if (onComplete) {
         onComplete();
       }
-    } catch (err: any) {
-      console.error('Batch rename error:', err);
-      const errorMsg = err.message || 'An unexpected error occurred during rename';
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Batch rename error', error);
+      const errorMsg = error.message || 'An unexpected error occurred during rename';
       addError('', errorMsg);
     } finally {
       setProcessing(false);
@@ -323,7 +328,7 @@ export function BatchRename({ onComplete }: BatchRenameProps) {
       {!selectedDirectory && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
           <p className="text-sm text-blue-800 dark:text-blue-200">
-            To rename files, please select a folder using "Select Folder" on step 1, or drag and drop a folder onto the upload area.
+            To rename files, please select a folder using &quot;Select Folder&quot; on step 1, or drag and drop a folder onto the upload area.
           </p>
         </div>
       )}

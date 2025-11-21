@@ -14,8 +14,8 @@ interface LogContext {
 }
 
 class Logger {
-  private isDevelopment = import.meta.env.DEV;
-  private isProduction = import.meta.env.PROD;
+  private isDevelopment = import.meta.env.DEV ?? import.meta.env.MODE !== 'production';
+  // Removed unused isProduction variable
 
   private formatMessage(level: LogLevel, message: string, context?: LogContext): string {
     const timestamp = new Date().toISOString();

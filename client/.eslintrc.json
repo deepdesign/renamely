@@ -13,7 +13,7 @@
     "plugin:react-hooks/recommended",
     "prettier"
   ],
-  "ignorePatterns": ["dist", ".eslintrc.json", "vite.config.ts"],
+  "ignorePatterns": ["dist", ".eslintrc.json", "vite.config.ts", "tailwind.config.ts", "vitest.config.ts"],
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "ecmaVersion": "latest",

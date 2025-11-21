@@ -3,6 +3,7 @@ import { createFromTemplate } from '../lib/api';
 import RunSheet from '../components/RunSheet';
 import type { TemplateInfo, UploadedFile, CreateFromTemplateBody, ProductCreationResult, PlaceholderAssignment, VariantAssignment } from '../lib/types';
 import { toHeadlineCase } from '../lib/utils';
+import { validateMetadataField, validateFilenameForAPI } from '../lib/validators';
 
 export default function Review() {
   const [template, setTemplate] = useState<TemplateInfo | null>(null);
@@ -75,16 +76,25 @@ export default function Review() {
       // Remove file extension and convert to Headline Case
       const rawImageName = (image.originalName || image.fileId).replace(/\.[^/.]+$/, '');
       const imageName = toHeadlineCase(rawImageName);
-      const productTitle = metadata.title 
-        ? `${metadata.title} - ${imageName}`
-        : imageName;
+      
+      // Validate and sanitize filename for API
+      const filenameValidation = validateFilenameForAPI(imageName);
+      const safeImageName = filenameValidation.valid && filenameValidation.sanitized 
+        ? filenameValidation.sanitized 
+        : imageName.replace(/[<>:"/\\|?*\x00-\x1F]/g, '').substring(0, 200); // Fallback sanitization
+      
+      // Sanitize metadata fields
+      const titlePrefix = metadata.title ? validateMetadataField(metadata.title, 'Title', 200).sanitized || metadata.title : '';
+      const sanitizedDescription = metadata.description ? validateMetadataField(metadata.description, 'Description', 1000).sanitized || metadata.description : 'Product description';
+      
+      const productTitle = titlePrefix ? `${titlePrefix} - ${safeImageName}` : safeImageName;
 
       // Create product payload per API docs
       // Both title and description are REQUIRED per API docs
       const payload: CreateFromTemplateBody = {
         templateId: template.id,
         title: productTitle,
-        description: metadata.description || 'Product description', // Fallback if somehow empty
+        description: sanitizedDescription,
         tags: metadata.tags,
         isVisibleInTheOnlineStore: metadata.isVisibleInTheOnlineStore,
         salesChannels: metadata.salesChannels,
@@ -100,7 +110,7 @@ export default function Review() {
 
       try {
         // Official API response per docs: id, previewUrl, status, etc.
-        const response = await createFromTemplate(payload) as any;
+        const response = await createFromTemplate(payload);
         
         const resultIndex = newResults.length - 1;
         newResults[resultIndex] = {
@@ -185,7 +195,7 @@ export default function Review() {
     setResults(newResults);
 
     try {
-      const response = await createFromTemplate(payload) as any;
+      const response = await createFromTemplate(payload);
       
       newResults[index] = {
         templateId: template.id,

@@ -10,14 +10,27 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'html', 'lcov'],
       exclude: [
         'node_modules/',
         'src/test/',
         '**/*.d.ts',
         '**/*.config.*',
         '**/mockData',
+        '**/dist/',
+        '**/build/',
+        'src/main.tsx',
+        'src/vite-env.d.ts',
       ],
+      include: [
+        'src/**/*.{ts,tsx}',
+      ],
+      thresholds: {
+        lines: 0, // Will be increased as tests are added
+        functions: 0,
+        branches: 0,
+        statements: 0,
+      },
     },
   },
   resolve: {

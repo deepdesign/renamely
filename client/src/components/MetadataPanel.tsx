@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { CreateFromTemplateBody } from '../lib/types';
+import { validateMetadataField } from '../lib/validators';
 
 type MetadataPanelProps = {
   initialTitle?: string;
@@ -20,9 +21,13 @@ export default function MetadataPanel({
   const [salesChannels] = useState<string[]>([]);
 
   useEffect(() => {
+    // Sanitize title and description before passing to parent
+    const titleValidation = title ? validateMetadataField(title, 'Title', 200) : { valid: true, sanitized: '' };
+    const descriptionValidation = description ? validateMetadataField(description, 'Description', 1000) : { valid: true, sanitized: '' };
+    
     onChange({
-      title,
-      description,
+      title: titleValidation.sanitized || title,
+      description: descriptionValidation.sanitized || description,
       tags,
       isVisibleInTheOnlineStore: isVisible,
       salesChannels: salesChannels.length > 0 ? salesChannels : undefined,
@@ -56,7 +61,7 @@ export default function MetadataPanel({
             placeholder="Leave blank to use image filename as title"
           />
           <p className="mt-1 text-xs text-gray-500">
-            If provided, each product title will be: "{title ? title + ' - ' : ''}[Image Filename]"
+            If provided, each product title will be: &quot;{title ? title + ' - ' : ''}[Image Filename]&quot;
             <br />
             If left blank, product title will be just the image filename
           </p>

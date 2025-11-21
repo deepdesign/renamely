@@ -117,7 +117,7 @@ export async function importWordBank(
   
   await db.wordBanks.add({
     ...wordBank,
-    themeId: (wordBank as any).themeId || 'default',
+    themeId: 'default', // WordBankData doesn't have themeId, use default
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });

@@ -3,6 +3,9 @@ import { regenerateFileUrl, getTunnelUrl, createFromTemplate, getProductStatus }
 import type { TemplateInfo, UploadedFile, CreateFromTemplateBody, VariantAssignment, PlaceholderAssignment } from '../lib/types';
 import { toHeadlineCase } from '../lib/utils';
 import { generateCSV, downloadCSV } from '../lib/validators';
+import { logger } from '../lib/logger';
+import { isHTMLImageElement } from '../lib/type-guards';
+import { validateMetadataField, validateFilenameForAPI } from '../lib/validators';
 
 type QueueItem = {
   image: UploadedFile;
@@ -45,6 +48,11 @@ type QueueItem = {
   errorDetails?: unknown;
 };
 
+/**
+ * Props for the UnifiedQueue component
+ * 
+ * @typedef {Object} UnifiedQueueProps
+ */
 type UnifiedQueueProps = {
   template: TemplateInfo;
   images: UploadedFile[];
@@ -56,7 +64,7 @@ type UnifiedQueueProps = {
   autoStart?: boolean;
 };
 
-export default function UnifiedQueue({ template, images, selectedVariants, metadata, onComplete, onPrevious, onStartOver, autoStart = false }: UnifiedQueueProps) {
+const UnifiedQueue = memo(function UnifiedQueue({ template, images, selectedVariants, metadata, onComplete, onPrevious, onStartOver, autoStart = false }: UnifiedQueueProps) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -84,9 +92,20 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
       const savedIsPaused = sessionStorage.getItem('podmate_queue_isPaused');
       
         if (savedQueue) {
-          const parsedQueue: any[] = JSON.parse(savedQueue);
+          type SavedQueueItem = {
+            status?: QueueItem['status'];
+            index?: number;
+            productId?: string;
+            productTitle?: string;
+            error?: string;
+            fileId?: string;
+            submittedAt?: number;
+            completedAt?: number;
+            gelatoStatus?: QueueItem['gelatoStatus'];
+          };
+          const parsedQueue: SavedQueueItem[] = JSON.parse(savedQueue);
           // Only restore if the saved queue matches current images (same fileIds)
-          const savedFileIds = new Set(parsedQueue.map((q: any) => q.fileId).filter(Boolean));
+          const savedFileIds = new Set(parsedQueue.map((q) => q.fileId).filter((id): id is string => Boolean(id)));
           const currentFileIds = new Set(images.map(img => img.fileId));
           
           const fileIdsMatch = savedFileIds.size === currentFileIds.size &&
@@ -96,7 +115,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
             // Reindex items to match current images order
             // Note: saved queue items only have fileId, not full image objects
             const reindexedQueue: QueueItem[] = images.map((image, index) => {
-              const savedItem = parsedQueue.find((q: any) => q.fileId === image.fileId);
+              const savedItem = parsedQueue.find((q) => q.fileId === image.fileId);
               if (savedItem) {
                 return {
                   status: savedItem.status || 'submitted',
@@ -142,7 +161,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
         }
       }
     } catch (err) {
-      console.error('Failed to restore queue state:', err);
+      logger.error('Failed to restore queue state', err);
     }
     
     hasRestoredQueueRef.current = true;
@@ -171,7 +190,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
       
       // Check if data is too large (sessionStorage limit is typically 5-10MB)
       if (queueData.length > 4 * 1024 * 1024) { // 4MB warning threshold
-        console.warn('Queue data is large, may exceed sessionStorage limits:', queueData.length, 'bytes');
+        logger.warn('Queue data is large, may exceed sessionStorage limits', { size: queueData.length });
       }
       
       sessionStorage.setItem('podmate_queue', queueData);
@@ -180,7 +199,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
     } catch (err) {
       // Handle quota exceeded error
       if (err instanceof DOMException && err.name === 'QuotaExceededError') {
-        console.error('SessionStorage quota exceeded. Queue state not saved. Error:', err);
+        logger.error('SessionStorage quota exceeded. Queue state not saved', err);
         // Optionally try to save a minimal version
         try {
           const minimalQueue = queue.map(q => ({
@@ -191,10 +210,10 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
           }));
           sessionStorage.setItem('podmate_queue', JSON.stringify(minimalQueue));
         } catch (minimalErr) {
-          console.error('Failed to save even minimal queue state:', minimalErr);
+          logger.error('Failed to save even minimal queue state', minimalErr);
         }
       } else {
-        console.error('Failed to save queue state:', err);
+        logger.error('Failed to save queue state', err);
       }
     }
   }, [queue, hasStarted, isPaused]);
@@ -209,7 +228,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
           sessionStorage.removeItem('podmate_queue_hasStarted');
           sessionStorage.removeItem('podmate_queue_isPaused');
         } catch (err) {
-          console.error('Failed to clear queue state:', err);
+          logger.error('Failed to clear queue state', err);
         }
       };
     }
@@ -259,13 +278,13 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
           setTunnelStatus('invalid');
         }
       } catch (err) {
-        console.error('Failed to get tunnel URL:', err);
+        logger.error('Failed to get tunnel URL', err);
         setTunnelStatus('invalid');
       }
     };
 
-    fetchTunnelUrl();
-    const interval = setInterval(fetchTunnelUrl, 30000);
+    void fetchTunnelUrl();
+    const interval = setInterval(() => void fetchTunnelUrl(), 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -301,7 +320,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
       const result = await regenerateFileUrl(image.fileId);
       return { ...image, publicUrl: result.publicUrl, thumbnailUrl: result.thumbnailUrl || image.thumbnailUrl };
     } catch (err) {
-      console.error(`Failed to refresh URL for ${image.fileId}:`, err);
+      logger.error(`Failed to refresh URL for ${image.fileId}`, err, { fileId: image.fileId });
       throw err;
     }
   }, [needsUrlRefresh]);
@@ -315,7 +334,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
     
     // Check if this item is already being processed
     if (processingItemsRef.current.has(itemIndex)) {
-      console.warn(`Item ${itemIndex} is already being processed, skipping duplicate`);
+      logger.warn(`Item ${itemIndex} is already being processed, skipping duplicate`, { itemIndex });
       return;
     }
 
@@ -334,7 +353,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
       
       // Check if this fileId has already been processed or is being processed
       if (processedFileIdsRef.current.has(queueItem.image.fileId)) {
-        console.warn(`File ${queueItem.image.fileId} (index ${itemIndex}) has already been processed, skipping duplicate`);
+        logger.warn(`File ${queueItem.image.fileId} (index ${itemIndex}) has already been processed, skipping duplicate`, { fileId: queueItem.image.fileId, itemIndex });
         processingRef.current = false;
         processingItemsRef.current.delete(itemIndex);
         setCurrentIndex(null);
@@ -411,12 +430,23 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
 
           const rawImageName = (updatedImage.originalName || updatedImage.fileId).replace(/\.[^/.]+$/, '');
           const imageName = toHeadlineCase(rawImageName);
-          const productTitle = metadata.title ? `${metadata.title} - ${imageName}` : imageName;
+          
+          // Validate and sanitize filename for API
+          const filenameValidation = validateFilenameForAPI(imageName);
+          const safeImageName = filenameValidation.valid && filenameValidation.sanitized 
+            ? filenameValidation.sanitized 
+            : imageName.replace(/[<>:"/\\|?*\x00-\x1F]/g, '').substring(0, 200); // Fallback sanitization
+          
+          // Sanitize metadata fields
+          const titlePrefix = metadata.title ? validateMetadataField(metadata.title, 'Title', 200).sanitized || metadata.title : '';
+          const sanitizedDescription = metadata.description ? validateMetadataField(metadata.description, 'Description', 1000).sanitized || metadata.description : 'Product description';
+          
+          const productTitle = titlePrefix ? `${titlePrefix} - ${safeImageName}` : safeImageName;
 
           const payload: CreateFromTemplateBody = {
             templateId: template.id,
             title: productTitle,
-            description: metadata.description || 'Product description',
+            description: sanitizedDescription,
             tags: metadata.tags,
             isVisibleInTheOnlineStore: metadata.isVisibleInTheOnlineStore,
             salesChannels: metadata.salesChannels,
@@ -427,7 +457,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
             // Double-check this fileId hasn't been processed by another instance
             if (processedFileIdsRef.current.has(updatedImage.fileId) && 
                 !processingItemsRef.current.has(itemIndex)) {
-              console.warn(`File ${updatedImage.fileId} was processed by another instance, skipping`);
+              logger.warn(`File ${updatedImage.fileId} was processed by another instance, skipping`, { fileId: updatedImage.fileId, itemIndex });
               processingRef.current = false;
               processingItemsRef.current.delete(itemIndex);
               processedFileIdsRef.current.delete(queueItem.image.fileId);
@@ -436,7 +466,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
               return;
             }
             
-            const response = await createFromTemplate(payload) as any;
+            const response = await createFromTemplate(payload);
             
             setQueue(current => current.map(q => 
               q.index === itemIndex ? { 
@@ -452,7 +482,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
 
             // Check status immediately
             if (response.id) {
-              checkItemStatus(itemIndex, response.id);
+              void checkItemStatus(itemIndex, response.id);
             }
           } catch (err) {
             setQueue(current => current.map(q => 
@@ -502,7 +532,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
     }
 
     try {
-      const status = await getProductStatus(productId) as any;
+      const status = await getProductStatus(productId);
       const variantsCount = Array.isArray(status.variants) ? status.variants.length : 0;
       const isReady = status.isReadyToPublish === true || status.status !== 'created';
 
@@ -525,7 +555,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
         return newItem;
       }));
     } catch (err) {
-      console.error(`Failed to check status for item ${itemIndex}:`, err);
+      logger.error(`Failed to check status for item ${itemIndex}`, err, { itemIndex });
     } finally {
       if (isAutoCheck) {
         setCheckingStatus(prev => {
@@ -554,7 +584,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
       // Check status after a delay to allow component to fully mount
       const timeoutId = setTimeout(() => {
         itemsToCheck.forEach(({ index, productId }) => {
-          checkItemStatus(index, productId, true);
+          void checkItemStatus(index, productId, true);
         });
       }, 2000);
       
@@ -572,7 +602,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
         if (item.status === 'uploading' && item.productId && !checkingStatus.has(item.index)) {
           const timeSinceSubmit = item.submittedAt ? Date.now() - item.submittedAt : 0;
           if (timeSinceSubmit >= MIN_TIME_BETWEEN_CHECKS) {
-            checkItemStatus(item.index, item.productId, true);
+            void checkItemStatus(item.index, item.productId, true);
           }
         }
       });
@@ -640,7 +670,13 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
   const allComplete = queue.length > 0 && completed === queue.length && errors === 0;
 
   return (
-    <div className="bg-white dark:bg-gray-800 shadow rounded-lg max-w-7xl mx-auto">
+    <div 
+      className="bg-white dark:bg-gray-800 shadow rounded-lg max-w-7xl mx-auto"
+      role="region"
+      aria-label="Unified product creation queue"
+      aria-live="polite"
+      aria-atomic="false"
+    >
       <div className="p-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Step 6: Upload Queue</h2>
 
@@ -663,6 +699,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                   {onStartOver && (
                     <button
                       onClick={onStartOver}
+                      aria-label="Start over and clear queue"
                       className="text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-300 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-6 py-3"
                     >
                       Start New Upload →
@@ -701,6 +738,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
               <p className="text-xs text-gray-600 dark:text-gray-400">{tunnelUrl || 'No tunnel URL configured'}</p>
             </div>
             <button
+              aria-label="Refresh URL for all images"
               onClick={async () => {
                 try {
                   const response = await getTunnelUrl();
@@ -722,6 +760,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
           <div className="flex gap-3">
             {!hasStarted && !autoStart && queue.length > 0 && (
               <button
+                aria-label="Start processing queue"
                 onClick={() => {
                   setHasStarted(true);
                   setIsPaused(false);
@@ -733,6 +772,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
             )}
             {hasStarted && (submitted > 0 || uploading > 0) && (
               <button
+                aria-label={isPaused ? 'Resume processing' : 'Pause processing'}
                 onClick={() => setIsPaused(!isPaused)}
                 className="text-gray-900 bg-white border border-gray-300 hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700 dark:focus:ring-gray-700"
               >
@@ -746,6 +786,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
               {completed} complete • {uploading} uploading • {submitted} pending • {errors} errors
             </div>
             <button
+              aria-label="Export results to CSV file"
               onClick={handleExport}
               className="text-gray-900 bg-white border border-gray-300 hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 font-medium rounded-lg text-sm px-4 py-2 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700 dark:focus:ring-gray-700"
             >
@@ -814,6 +855,8 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                         }
                         setExpandedRows(newExpanded);
                       }}
+                      role="row"
+                      aria-label={`Queue item ${item.index + 1}: ${item.image.originalName || item.image.fileId} - ${item.status}`}
                     >
                       <td className="px-6 py-4 align-top">
                         <div className="flex items-center gap-3">
@@ -863,7 +906,12 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr key={`${item.index}-details`} className="bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
+                      <tr 
+                        key={`${item.index}-details`} 
+                        className="bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700"
+                        role="region"
+                        aria-label={`Details for queue item ${item.index + 1}`}
+                      >
                         <td colSpan={3} className="px-6 py-4" style={{ width: '100%' }}>
                           <div className="space-y-4 text-xs">
                             {/* Actions */}
@@ -879,6 +927,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                               )}
                               {item.status === 'error' && (
                                 <button
+                                  aria-label={`Retry processing for ${item.image.originalName || item.image.fileId}`}
                                   onClick={() => retryItem(item.index)}
                                   className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 focus:ring-4 focus:ring-green-300 dark:focus:ring-green-800 font-medium"
                                 >
@@ -944,7 +993,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                       <div className="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded text-xs">
                                         <strong className="text-gray-900 dark:text-white">Variants ({variantsCount}):</strong>
                                         <ul className="mt-1 space-y-1 text-gray-700 dark:text-gray-300">
-                                          {variants.slice(0, 5).map((variant: any, idx: number) => (
+                                          {variants.slice(0, 5).map((variant, idx: number) => (
                                             <li key={idx}>
                                               {variant.title || variant.id ? (
                                                 <>
@@ -973,10 +1022,10 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                   <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded mb-3">
                                     <strong className="text-yellow-800 dark:text-yellow-300">⏳ Variants Created, Connecting...</strong>
                                     <p className="text-yellow-700 dark:text-yellow-400 mt-2 text-xs">
-                                      Gelato has created {variantsCount} variant{variantsCount !== 1 ? 's' : ''} but they're not fully connected yet.
+                                      Gelato has created {variantsCount} variant{variantsCount !== 1 ? 's' : ''} but they&apos;re not fully connected yet.
                                       <br />
                                       <br />
-                                      <strong>What's happening:</strong>
+                                      <strong>What&apos;s happening:</strong>
                                       <ul className="list-disc list-inside mt-1 space-y-1">
                                         <li>Variants exist in Gelato ({variantsCount} variant{variantsCount !== 1 ? 's' : ''})</li>
                                         <li>But 0 variants are connected (as shown in Gelato dashboard)</li>
@@ -987,7 +1036,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                       <strong>What to do:</strong>
                                       <ul className="list-disc list-inside mt-1 space-y-1">
                                         <li>Wait 10-30 minutes for variants to fully connect</li>
-                                        <li>Click <strong>"Check Status"</strong> periodically to see when `isReadyToPublish` becomes `true`</li>
+                                        <li>Click <strong>&quot;Check Status&quot;</strong> periodically to see when `isReadyToPublish` becomes `true`</li>
                                         <li>Once `isReadyToPublish: true`, all variants will be connected and ready</li>
                                       </ul>
                                       <br />
@@ -998,7 +1047,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                         </span>
                                       )}
                                       <br />
-                                      <strong className="text-blue-700 dark:text-blue-400 block mt-2">💡 You can safely close this app - processing continues on Gelato's servers!</strong>
+                                      <strong className="text-blue-700 dark:text-blue-400 block mt-2">💡 You can safely close this app - processing continues on Gelato&apos;s servers!</strong>
                                     </p>
                                   </div>
                                 );
@@ -1016,7 +1065,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                       Gelato has received your product and is downloading/processing the images.
                                       <br />
                                       <br />
-                                      <strong>What's happening:</strong>
+                                      <strong>What&apos;s happening:</strong>
                                       <ul className="list-disc list-inside mt-1 space-y-1">
                                         <li>Gelato is fetching images from your server</li>
                                         <li>Large high-resolution files (50-100MB+) can take 30-60+ minutes to fully download and process</li>
@@ -1034,7 +1083,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                       <strong>What to do:</strong>
                                       <ul className="list-disc list-inside mt-1 space-y-1">
                                         <li>For large files, wait 30-60 minutes before checking again</li>
-                                        <li>Click <strong>"Check Status"</strong> periodically to see progress</li>
+                                        <li>Click <strong>&quot;Check Status&quot;</strong> periodically to see progress</li>
                                         <li>Check server logs for <code className="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">✅ GELATO FETCH DETECTED</code> - repeated fetches every minute indicate Gelato is actively working on it</li>
                                       </ul>
                                       <br />
@@ -1045,7 +1094,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                         </span>
                                       )}
                                       <br />
-                                      <strong className="text-blue-700 dark:text-blue-400 block mt-2">💡 You can safely close this app - processing continues on Gelato's servers!</strong>
+                                      <strong className="text-blue-700 dark:text-blue-400 block mt-2">💡 You can safely close this app - processing continues on Gelato&apos;s servers!</strong>
                                     </p>
                                   </div>
                                 );
@@ -1069,7 +1118,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                         <li>Product Images: {productImagesCount} {productImagesCount === 0 ? '(still processing)' : '(completed)'}</li>
                                       </ul>
                                       <br />
-                                      Processing typically takes 5-10 minutes total. Click <strong>"Check Status"</strong> again in a few minutes to see updated progress.
+                                      Processing typically takes 5-10 minutes total. Click <strong>&quot;Check Status&quot;</strong> again in a few minutes to see updated progress.
                                       <br />
                                       {submittedTime && (
                                         <>
@@ -1081,7 +1130,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                         </>
                                       )}
                                       <br />
-                                      <strong className="text-blue-700 dark:text-blue-400 block mt-2">💡 You can safely close this app - processing continues on Gelato's servers!</strong>
+                                      <strong className="text-blue-700 dark:text-blue-400 block mt-2">💡 You can safely close this app - processing continues on Gelato&apos;s servers!</strong>
                                     </p>
                                   </div>
                                 );
@@ -1114,7 +1163,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                     <div className="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded text-xs">
                                       <strong className="text-gray-900 dark:text-white">Variants ({variantsCount}):</strong>
                                       <ul className="mt-1 space-y-1 text-gray-700 dark:text-gray-300">
-                                        {variants.slice(0, 3).map((variant: any, idx: number) => (
+                                        {variants.slice(0, 3).map((variant, idx: number) => (
                                           <li key={idx}>
                                             {variant.title || variant.id ? (
                                               <>
@@ -1162,8 +1211,9 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                         alt="Original uploaded image"
                                         className="max-w-xs max-h-48 border border-gray-300 dark:border-gray-600 rounded"
                                         onError={(e) => {
-                                          const target = e.target as HTMLImageElement;
-                                          target.style.display = 'none';
+                                          if (isHTMLImageElement(e.target)) {
+                                            e.target.style.display = 'none';
+                                          }
                                           const errorDiv = document.createElement('div');
                                           errorDiv.className = 'text-red-600 dark:text-red-400 text-sm p-2 bg-red-50 dark:bg-red-900/20 rounded';
                                           errorDiv.textContent = '❌ Image failed to load - may be corrupted, expired, or URL inaccessible';
@@ -1175,7 +1225,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
                                   <div className="text-xs text-gray-600 dark:text-gray-400 mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
                                     <strong>💡 Diagnostic Tips:</strong>
                                     <ul className="list-disc list-inside mt-1 space-y-1">
-                                      <li>If this preview looks <strong>correct</strong> but Gelato shows black areas → Image is likely still processing (wait 5-10 min, then click "Check Status")</li>
+                                      <li>If this preview looks <strong>correct</strong> but Gelato shows black areas → Image is likely still processing (wait 5-10 min, then click &quot;Check Status&quot;)</li>
                                       <li>If this preview shows <strong>black areas</strong> → The original file may be corrupted or incomplete</li>
                                       <li>If this preview <strong>fails to load</strong> → The URL may have expired or the file was deleted</li>
                                     </ul>
@@ -1324,5 +1374,7 @@ export default function UnifiedQueue({ template, images, selectedVariants, metad
       </div>
     </div>
   );
-}
+});
+
+export default UnifiedQueue;
 

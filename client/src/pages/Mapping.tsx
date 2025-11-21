@@ -1,8 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import FileBrowser from '../components/FileBrowser';
 import MappingGrid from '../components/MappingGrid';
-import MetadataPanel from '../components/MetadataPanel';
+import { Loader2 } from 'lucide-react';
+
+// Lazy load MetadataPanel for code splitting
+const MetadataPanel = lazy(() => import('../components/MetadataPanel'));
+
+// Loading fallback for MetadataPanel
+function MetadataPanelFallback() {
+  return (
+    <div className="flex items-center justify-center py-8">
+      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+    </div>
+  );
+}
 import type { TemplateInfo, UploadedFile, VariantAssignment, CreateFromTemplateBody } from '../lib/types';
 
 export default function Mapping() {
@@ -45,7 +57,7 @@ export default function Mapping() {
 
   return (
     <div className="space-y-6">
-      <FileBrowser onFilesAdded={(files) => handleFilesAdded(files as any)} />
+      <FileBrowser onFilesAdded={handleFilesAdded} />
       
       <MappingGrid
         templates={templates}
@@ -55,11 +67,13 @@ export default function Mapping() {
         onMappingChange={handleMappingChange}
       />
 
-      <MetadataPanel
-        initialTitle={metadata.title}
-        initialDescription={metadata.description}
-        onChange={handleMetadataChange}
-      />
+      <Suspense fallback={<MetadataPanelFallback />}>
+        <MetadataPanel
+          initialTitle={metadata.title}
+          initialDescription={metadata.description}
+          onChange={handleMetadataChange}
+        />
+      </Suspense>
 
       <div className="flex justify-end">
         <button
