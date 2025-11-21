@@ -639,7 +639,7 @@ const RunSheet = memo(function RunSheet({ results, images, onRetry, onStatusUpda
                         {/* Diagnostic Messages - always visible when row is expanded */}
                         {result.responseReceived && typeof result.responseReceived === 'object' && result.responseReceived !== null && (() => {
                           const response = isProductStatusResponse(result.responseReceived) ? result.responseReceived : undefined;
-                          if (!response) return null;
+                          if (!response) return null as JSX.Element | null;
                           const variants = Array.isArray(response.variants) ? response.variants : [];
                           const productImages = Array.isArray(response.productImages) ? response.productImages : [];
                           const variantsCount = variants.length;
@@ -862,7 +862,7 @@ const RunSheet = memo(function RunSheet({ results, images, onRetry, onStatusUpda
                               </svg>
                               <strong>Payload Sent to Gelato:</strong>
                             </button>
-                            {isSectionExpanded(`payload-${index}`) && (
+                            {isSectionExpanded(`payload-${index}`) && result.payloadSent && (
                               <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto">
                                 {JSON.stringify(result.payloadSent, null, 2)}
                               </pre>

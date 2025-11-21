@@ -358,7 +358,7 @@ const FilePickerComponent = forwardRef<FilePickerRef, FilePickerProps>(({ onSele
         images.push({
           id: uniqueId,
           file,
-          fileHandle: null, // Files from input don't have handles - will need destination folder
+          fileHandle: null as FileSystemFileHandle | null, // Files from input don't have handles - will need destination folder
           path: file.name,
           originalName: file.name,
           extension,

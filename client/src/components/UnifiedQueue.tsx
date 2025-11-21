@@ -1211,13 +1211,13 @@ const UnifiedQueue = memo(function UnifiedQueue({ template, images, selectedVari
                                         alt="Original uploaded image"
                                         className="max-w-xs max-h-48 border border-gray-300 dark:border-gray-600 rounded"
                                         onError={(e) => {
-                                          const target = e.target;
-                                          if (isHTMLImageElement(target)) {
-                                            target.style.display = 'none';
+                                          const imageTarget = e.target;
+                                          if (isHTMLImageElement(imageTarget)) {
+                                            imageTarget.style.display = 'none';
                                             const errorDiv = document.createElement('div');
                                             errorDiv.className = 'text-red-600 dark:text-red-400 text-sm p-2 bg-red-50 dark:bg-red-900/20 rounded';
                                             errorDiv.textContent = '❌ Image failed to load - may be corrupted, expired, or URL inaccessible';
-                                            target.parentElement?.appendChild(errorDiv);
+                                            imageTarget.parentElement?.appendChild(errorDiv);
                                           }
                                         }}
                                       />

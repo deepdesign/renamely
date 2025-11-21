@@ -34,8 +34,19 @@ export default function Mapping() {
     }
   }, [navigate]);
 
-  const handleFilesAdded = (files: UploadedFile[]) => {
-    setUploadedFiles(prev => [...prev, ...files]);
+  const handleFilesAdded = (files: File[]) => {
+    // Convert File[] to UploadedFile[] by creating URLs and fileIds
+    const newUploadedFiles: UploadedFile[] = files.map((file, index) => {
+      const fileId = `file-${Date.now()}-${index}`;
+      const publicUrl = URL.createObjectURL(file);
+      return {
+        fileId,
+        originalName: file.name,
+        publicUrl,
+        file, // Keep original file reference
+      };
+    });
+    setUploadedFiles(prev => [...prev, ...newUploadedFiles]);
   };
 
   const handleMappingChange = (newMapping: Map<string, VariantAssignment>) => {
